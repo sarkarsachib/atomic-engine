@@ -1,0 +1,19 @@
+{
+  "name": "atomic-engine",
+  "version": "1.0.0",
+  "description": "Idea-to-Everything Automation Engine",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "dev": "ts-node src/index.ts"
+  },
+  "keywords": [
+    "automation",
+    "ai",
+    "code-generation",
+    "prototype"
+  ],
+  "author": "Atomic Engine",
+  "license": "MIT"
+}

@@ -48,6 +48,27 @@ class StreamContext:
     callbacks: Dict[str, List[Callable]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize the StreamContext into a JSON-serializable dictionary.
+        
+        The returned dictionary contains the stream's identifier, serialized request, current state as the enum value string, provider and model identifiers, the length of accumulated content, total processed chunk count, ISO 8601 timestamps for start and end (end may be None), serialized token usage if available (or None), any error message, and the metadata mapping.
+        
+        Returns:
+            dict: {
+                "stream_id": str,
+                "request": dict,
+                "state": str,
+                "provider": str,
+                "model": str,
+                "accumulated_content_length": int,
+                "total_chunks": int,
+                "start_time": str,
+                "end_time": str | None,
+                "token_usage": dict | None,
+                "error": str | None,
+                "metadata": dict
+            }
+        """
         return {
             "stream_id": self.stream_id,
             "request": self.request.to_dict(),
@@ -72,6 +93,13 @@ class StreamHandler:
         buffer_size: int = 10,
         flush_interval: float = 0.1,
     ):
+        """
+        Initialize the StreamHandler with buffering parameters and prepare internal state.
+        
+        Parameters:
+            buffer_size (int): Maximum number of chunks to buffer before triggering a flush.
+            flush_interval (float): Time in seconds between automatic flush attempts.
+        """
         self.buffer_size = buffer_size
         self.flush_interval = flush_interval
 
@@ -86,7 +114,18 @@ class StreamHandler:
         model: str,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> StreamContext:
-        """Create a new streaming context"""
+        """
+        Create and register a new StreamContext for a streaming request.
+        
+        Parameters:
+            request (LLMRequest): The LLM request associated with the stream.
+            provider (str): Identifier of the provider producing the stream.
+            model (str): Model name or identifier used for the stream.
+            metadata (Optional[Dict[str, Any]]): Optional metadata to attach to the stream.
+        
+        Returns:
+            StreamContext: The created and registered stream context with a unique `stream_id` and initial state.
+        """
         context = StreamContext(
             stream_id=str(uuid.uuid4()),
             request=request,
@@ -107,7 +146,20 @@ class StreamHandler:
         context: StreamContext,
         chunk_callback: Optional[Callable[[StreamChunk], None]] = None,
     ) -> StreamContext:
-        """Process streaming response and update context"""
+        """
+        Drive an LLM streaming response, update the provided StreamContext, and return the final context.
+        
+        Processes chunks produced by the provider for the given request, updating context fields (state, total_chunks, accumulated_content, token_usage, start/end times, and error when applicable), invoking an optional per-chunk callback, and firing registered "chunk" callbacks. Removes the context from the handler's active streams when finished.
+        
+        Parameters:
+            provider (BaseProvider): The provider instance supplying an async stream of StreamChunk objects.
+            request (LLMRequest): The LLM request used to produce the stream.
+            context (StreamContext): The StreamContext to update as chunks arrive.
+            chunk_callback (Optional[Callable[[StreamChunk], None]]): Optional synchronous callback invoked for each chunk.
+        
+        Returns:
+            StreamContext: The updated StreamContext reflecting the final state and any token usage, timestamps, or error information.
+        """
         context.state = StreamState.STARTING
 
         try:
@@ -150,7 +202,17 @@ class StreamHandler:
         event: str,
         callback: Callable,
     ) -> bool:
-        """Register a callback for stream events"""
+        """
+        Attach a callback to be invoked for a specific event on an active stream.
+        
+        Parameters:
+            stream_id (str): Identifier of the stream to register the callback on.
+            event (str): Name of the event to listen for (e.g., "chunk", "end", "error").
+            callback (Callable): Callable to be invoked when the event is fired. It will be appended to the stream's callback list.
+        
+        Returns:
+            bool: `True` if the callback was registered, `False` if no active stream with `stream_id` exists.
+        """
         if stream_id not in self._active_streams:
             return False
 
@@ -163,7 +225,17 @@ class StreamHandler:
         event: str,
         callback: Callable,
     ) -> bool:
-        """Unregister a callback"""
+        """
+        Remove a previously registered callback for a specific stream event.
+        
+        Parameters:
+            stream_id (str): Identifier of the stream whose callback should be removed.
+            event (str): Name of the event the callback was registered for.
+            callback (Callable): The callback function to remove.
+        
+        Returns:
+            bool: `True` if the callback was found and removed, `False` otherwise.
+        """
         if stream_id not in self._active_streams:
             return False
 
@@ -179,20 +251,44 @@ class StreamHandler:
         *args,
         **kwargs,
     ) -> None:
-        """Fire callbacks for an event"""
+        """
+        Invoke all callbacks registered for the specified event, forwarding any positional and keyword arguments to each callback.
+        
+        Parameters:
+            event (str): Name of the event whose callbacks should be invoked.
+            *args: Positional arguments to pass to each callback.
+            **kwargs: Keyword arguments to pass to each callback.
+        """
         # This is simplified - in practice, you'd want to track context per event
         pass
 
     def get_stream(self, stream_id: str) -> Optional[StreamContext]:
-        """Get a stream by ID"""
+        """
+        Retrieve the StreamContext for a given stream identifier.
+        
+        Returns:
+            The StreamContext for the given stream_id, or `None` if no active stream exists.
+        """
         return self._active_streams.get(stream_id)
 
     def get_active_streams(self) -> List[StreamContext]:
-        """Get all active streams"""
+        """
+        List all currently active stream contexts.
+        
+        Returns:
+            List[StreamContext]: Active StreamContext objects for streams currently being tracked.
+        """
         return list(self._active_streams.values())
 
     async def cancel_stream(self, stream_id: str) -> bool:
-        """Cancel an active stream"""
+        """
+        Mark a registered stream as cancelled and remove it from active streams.
+        
+        If the stream exists, sets its state to `StreamState.CANCELLED`, records `end_time`, removes it from the handler's active registry, and returns `True`. If no stream with the given `stream_id` exists, returns `False`.
+        
+        Returns:
+            `True` if the stream was found and cancelled, `False` otherwise.
+        """
         if stream_id not in self._active_streams:
             return False
 
@@ -206,7 +302,14 @@ class StreamHandler:
         return True
 
     async def pause_stream(self, stream_id: str) -> bool:
-        """Pause a streaming context"""
+        """
+        Pause an active streaming context identified by stream_id.
+        
+        This will transition the stream's state to `PAUSED` only if the stream exists and is currently in the `STREAMING` state.
+        
+        Returns:
+            `true` if the stream was paused, `false` otherwise.
+        """
         context = self._active_streams.get(stream_id)
         if not context or context.state != StreamState.STREAMING:
             return False
@@ -215,7 +318,12 @@ class StreamHandler:
         return True
 
     async def resume_stream(self, stream_id: str) -> bool:
-        """Resume a paused stream"""
+        """
+        Resume a paused stream by changing its state to STREAMING.
+        
+        Returns:
+            `true` if the stream existed and was resumed, `false` otherwise.
+        """
         # This would require provider support for pause/resume
         context = self._active_streams.get(stream_id)
         if not context or context.state != StreamState.PAUSED:
@@ -225,7 +333,11 @@ class StreamHandler:
         return True
 
     async def cleanup(self) -> None:
-        """Clean up all active streams"""
+        """
+        Mark all active streams as errored with the message "Cleanup" and clear the active stream registry.
+        
+        This operation acquires the handler's internal lock, sets each active StreamContext.state to StreamState.ERROR and StreamContext.error to "Cleanup", then removes all contexts from the active streams mapping.
+        """
         async with self._lock:
             for context in self._active_streams.values():
                 context.state = StreamState.ERROR
@@ -242,6 +354,14 @@ class SSEStreamHandler(StreamHandler):
         flush_interval: float = 0.05,
         sse_content_type: str = "text/event-stream",
     ):
+        """
+        Initialize the SSEStreamHandler with buffering parameters and the SSE content type.
+        
+        Parameters:
+            buffer_size (int): Maximum number of chunks to buffer before triggering a flush.
+            flush_interval (float): Time in seconds between automatic buffer flushes.
+            sse_content_type (str): Content-Type value to use for Server-Sent Events responses.
+        """
         super().__init__(buffer_size, flush_interval)
         self.sse_content_type = sse_content_type
 
@@ -251,7 +371,17 @@ class SSEStreamHandler(StreamHandler):
         data: Dict[str, Any],
         event_id: Optional[str] = None,
     ) -> str:
-        """Format data as SSE event"""
+        """
+        Build a Server-Sent Events (SSE) formatted string for a single event.
+        
+        Parameters:
+            event (str): The SSE event name to emit (omitted if empty).
+            data (Dict[str, Any]): The payload to serialize to JSON and emit as one or more `data:` lines.
+            event_id (Optional[str]): Optional `id` field for the SSE event.
+        
+        Returns:
+            sse_event (str): The complete SSE event text, including optional `id:` and `event:` lines, one or more `data:` lines containing the JSON payload, and a terminating blank line.
+        """
         lines = []
 
         if event_id:
@@ -273,7 +403,16 @@ class SSEStreamHandler(StreamHandler):
         chunk: StreamChunk,
         include_content: bool = True,
     ) -> str:
-        """Format a stream chunk as SSE event"""
+        """
+        Produce an SSE-formatted "chunk" event representing a single streaming chunk.
+        
+        Parameters:
+            chunk (StreamChunk): The stream chunk to serialize into an SSE event.
+            include_content (bool): If False, omit textual `content` and `delta` (they will be set to null).
+        
+        Returns:
+            sse_event (str): The chunk encoded as an SSE event string (includes event id set to the chunk index).
+        """
         data = {
             "type": "chunk",
             "chunk_index": chunk.chunk_index,
@@ -295,7 +434,15 @@ class SSEStreamHandler(StreamHandler):
         self,
         context: StreamContext,
     ) -> str:
-        """Format stream start as SSE event"""
+        """
+        Builds an SSE "start" event for a stream.
+        
+        Parameters:
+            context (StreamContext): StreamContext whose stream_id, model, provider, and start_time are used to populate the event.
+        
+        Returns:
+            str: SSE-formatted event string representing the stream start.
+        """
         data = {
             "type": "start",
             "stream_id": context.stream_id,
@@ -310,7 +457,15 @@ class SSEStreamHandler(StreamHandler):
         self,
         context: StreamContext,
     ) -> str:
-        """Format stream end as SSE event"""
+        """
+        Create an SSE "end" event for the given stream context.
+        
+        Parameters:
+            context (StreamContext): Stream context whose final state, chunk counts, accumulated content length, timestamp, and optional token usage or error are included in the event.
+        
+        Returns:
+            sse_event (str): SSE-formatted string representing the "end" event for the stream.
+        """
         data = {
             "type": "end",
             "stream_id": context.stream_id,
@@ -333,7 +488,16 @@ class SSEStreamHandler(StreamHandler):
         stream_id: str,
         error: str,
     ) -> str:
-        """Format error as SSE event"""
+        """
+        Builds an SSE-formatted "error" event for a stream.
+        
+        Parameters:
+            stream_id (str): Identifier of the stream that encountered the error.
+            error (str): Human-readable error message.
+        
+        Returns:
+            str: SSE-formatted event payload representing the error.
+        """
         data = {
             "type": "error",
             "stream_id": stream_id,
@@ -350,7 +514,20 @@ class SSEStreamHandler(StreamHandler):
         context: StreamContext,
         include_content: bool = True,
     ) -> AsyncIterator[str]:
-        """Yield SSE formatted events from a stream"""
+        """
+        Produce an async iterator of Server-Sent Events (SSE) strings for a streaming LLM response.
+        
+        Yields a start event, one or more chunk events, and a final end event. When a chunk with `is_final` is encountered, the function updates `context.token_usage` with the chunk's usage and stops yielding further chunk events.
+        
+        Parameters:
+            provider (BaseProvider): Provider used to stream chunks for the given request.
+            request (LLMRequest): The request object describing the LLM invocation to stream.
+            context (StreamContext): Stream context that is updated (notably `token_usage`) during streaming.
+            include_content (bool): If True, include chunk content in chunk events; otherwise omit it.
+        
+        Returns:
+            AsyncIterator[str]: An async iterator yielding SSE-formatted event strings (start, chunk events, end).
+        """
         # Send start event
         yield self.format_start_event(context)
 
@@ -369,7 +546,18 @@ class SSEStreamHandler(StreamHandler):
         self,
         events: AsyncIterator[str],
     ) -> Dict[str, Any]:
-        """Create a response object for SSE"""
+        """
+        Build an HTTP response dictionary configured for Server-Sent Events (SSE).
+        
+        Parameters:
+            events (AsyncIterator[str]): An asynchronous iterator that yields SSE-formatted event strings to stream as the response body.
+        
+        Returns:
+            response (Dict[str, Any]): A response mapping with:
+                - status_code: 200
+                - headers: SSE-ready headers including Content-Type, Cache-Control, Connection, and X-Accel-Buffering
+                - body: the provided async iterator of SSE event strings
+        """
         return {
             "status_code": 200,
             "headers": {
@@ -390,6 +578,17 @@ class StreamBuffer:
         max_size: int = 100,
         flush_interval: float = 0.1,
     ):
+        """
+        Initialize the StreamBuffer with capacity and flush timing.
+        
+        Parameters:
+            max_size (int): Maximum number of chunks to hold before triggering an immediate flush.
+            flush_interval (float): Approximate interval in seconds used for periodic flushing when enabled.
+        
+        Description:
+            Sets up internal storage for buffered StreamChunk objects, an asyncio lock for concurrency,
+            and a placeholder for an optional background flush task.
+        """
         self.max_size = max_size
         self.flush_interval = flush_interval
 
@@ -399,7 +598,12 @@ class StreamBuffer:
         _last_flush_time: float = 0
 
     async def add(self, chunk: StreamChunk) -> None:
-        """Add a chunk to the buffer"""
+        """
+        Add a StreamChunk to the internal buffer and trigger a flush when the buffer reaches max_size.
+        
+        Parameters:
+            chunk (StreamChunk): Chunk to append to the buffer.
+        """
         async with self._lock:
             self._buffer.append(chunk)
 
@@ -407,28 +611,51 @@ class StreamBuffer:
                 await self.flush()
 
     async def flush(self) -> List[StreamChunk]:
-        """Flush and return all buffered chunks"""
+        """
+        Clear the internal buffer and return the buffered StreamChunk objects.
+        
+        Returns:
+            List[StreamChunk]: The chunks that were in the buffer prior to flushing; the internal buffer is empty after this call.
+        """
         async with self._lock:
             chunks = self._buffer.copy()
             self._buffer.clear()
             return chunks
 
     async def get_all(self) -> List[StreamChunk]:
-        """Get all chunks without flushing"""
+        """
+        Return a copy of all buffered stream chunks without clearing the buffer.
+        
+        Returns:
+            List[StreamChunk]: A shallow copy of the current buffer containing `StreamChunk` objects.
+        """
         async with self._lock:
             return self._buffer.copy()
 
     async def clear(self) -> None:
-        """Clear the buffer"""
+        """
+        Remove all buffered chunks from the internal buffer.
+        
+        This clears the in-memory buffer used to accumulate stream chunks.
+        """
         async with self._lock:
             self._buffer.clear()
 
     def size(self) -> int:
-        """Get current buffer size"""
+        """
+        Return the number of chunks currently in the buffer.
+        
+        Returns:
+            int: Count of buffered StreamChunk objects.
+        """
         return len(self._buffer)
 
     async def close(self) -> None:
-        """Close and cleanup"""
+        """
+        Ensure any buffered chunks are flushed and perform cleanup.
+        
+        Calls flush to process and clear the internal buffer so no buffered chunks remain.
+        """
         await self.flush()
 
 
@@ -436,10 +663,25 @@ class ChunkAggregator:
     """Aggregates streaming chunks into complete responses"""
 
     def __init__(self):
+        """
+        Initialize a ChunkAggregator by creating an empty mapping of stream IDs to buffered chunks.
+        
+        The instance will store incoming StreamChunk objects per stream in `_responses` until aggregation is triggered.
+        """
         self._responses: Dict[str, List[StreamChunk]] = {}
 
     async def add_chunk(self, stream_id: str, chunk: StreamChunk) -> Optional[Dict[str, Any]]:
-        """Add a chunk and return complete response if done"""
+        """
+        Append a StreamChunk to the stored list for a stream and produce an aggregated response when the chunk is final.
+        
+        Parameters:
+            stream_id (str): Unique identifier of the stream receiving the chunk.
+            chunk (StreamChunk): The stream chunk to add; if `chunk.is_final` is True the stored chunks for the stream are aggregated.
+        
+        Returns:
+            dict: Aggregated response for the stream when `chunk.is_final` is True.
+            None: If the stream is not complete after adding this chunk.
+        """
         if stream_id not in self._responses:
             self._responses[stream_id] = []
 
@@ -456,7 +698,25 @@ class ChunkAggregator:
         stream_id: str,
         chunks: List[StreamChunk],
     ) -> Dict[str, Any]:
-        """Aggregate chunks into a complete response"""
+        """
+        Builds a consolidated response object from an ordered list of stream chunks.
+        
+        Parameters:
+            stream_id (str): Identifier for the stream whose chunks are being aggregated.
+            chunks (List[StreamChunk]): Ordered list of chunks for the stream; must contain at least one chunk.
+        
+        Returns:
+            Dict[str, Any]: Aggregated response containing:
+                - stream_id: the provided stream identifier
+                - content: concatenated chunk contents in order
+                - model: model value from the last chunk
+                - provider: provider value from the last chunk
+                - finish_reason: finish reason from the last chunk
+                - total_chunks: number of chunks aggregated
+                - usage: token usage from the last chunk as a dict, or `None` if absent
+                - start_time: ISO 8601 timestamp of the first chunk
+                - end_time: ISO 8601 timestamp of the last chunk
+        """
         content = "".join(chunk.content for chunk in chunks)
         last_chunk = chunks[-1]
 
@@ -473,9 +733,21 @@ class ChunkAggregator:
         }
 
     def get_incomplete(self, stream_id: str) -> Optional[List[StreamChunk]]:
-        """Get incomplete chunks for a stream"""
+        """
+        Retrieve the list of incomplete chunks for a stream.
+        
+        Returns:
+            Optional[List[StreamChunk]]: List of incomplete StreamChunk objects for the given stream_id, or `None` if no incomplete chunks exist.
+        """
         return self._responses.get(stream_id)
 
     def remove(self, stream_id: str) -> None:
-        """Remove a stream from aggregation"""
+        """
+        Remove all buffered chunks associated with a stream.
+        
+        This operation is idempotent: if no chunks exist for the given stream_id, the call has no effect.
+        
+        Parameters:
+            stream_id (str): Identifier of the stream whose buffered chunks should be removed.
+        """
         self._responses.pop(stream_id, None)

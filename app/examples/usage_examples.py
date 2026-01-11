@@ -14,7 +14,11 @@ from app.llm import (
 
 
 async def basic_generation():
-    """Basic text generation example"""
+    """
+    Demonstrates a minimal one-shot text generation using the default agent configuration.
+    
+    Creates an agent with default settings, generates a single response to the prompt "What is the capital of France?", prints the response content, model, provider, and usage details, and then shuts down the agent.
+    """
     print("=" * 60)
     print("Basic Generation Example")
     print("=" * 60)
@@ -34,7 +38,11 @@ async def basic_generation():
 
 
 async def streaming_example():
-    """Streaming response example"""
+    """
+    Demonstrates streaming text generation from an agent and prints each incoming chunk to stdout.
+    
+    Creates an agent, requests a short story using the agent's streaming API, prints each chunk's delta as it arrives, and shuts down the agent. The complete response is accumulated internally but not returned.
+    """
     print("=" * 60)
     print("Streaming Example")
     print("=" * 60)
@@ -57,7 +65,11 @@ async def streaming_example():
 
 
 async def conversation_example():
-    """Conversation/chat example"""
+    """
+    Run a conversational example demonstrating agent-based chat interactions.
+    
+    Creates an agent, opens a conversation with a system prompt ("You are a helpful coding assistant."), sends a sequence of user messages, prints each assistant reply (truncated), prints the total number of messages in the conversation, and shuts down the agent.
+    """
     print("=" * 60)
     print("Conversation Example")
     print("=" * 60)
@@ -91,7 +103,11 @@ async def conversation_example():
 
 
 async def provider_management_example():
-    """Provider switching example"""
+    """
+    Demonstrates listing providers, checking provider health, and switching the active provider.
+    
+    Creates an agent, prints available providers and their health status, switches to a different provider if one is available, and then shuts down the agent.
+    """
     print("=" * 60)
     print("Provider Management Example")
     print("=" * 60)
@@ -121,7 +137,11 @@ async def provider_management_example():
 
 
 async def usage_tracking_example():
-    """Usage tracking example"""
+    """
+    Demonstrates generating short requests to accumulate usage data and printing usage and routing reports.
+    
+    Performs two example generate calls to create usage records, then retrieves and prints the agent's usage statistics, a one-day usage summary, and routing metrics before shutting down the agent.
+    """
     print("=" * 60)
     print("Usage Tracking Example")
     print("=" * 60)
@@ -149,7 +169,11 @@ async def usage_tracking_example():
 
 
 async def routing_example():
-    """Custom routing example"""
+    """
+    Demonstrates generating a response using a cost-aware routing strategy.
+    
+    Creates an agent, configures a routing-aware LLM setup with a primary and fallback providers, performs a generation request (with "openai" as the primary), prints a truncated response and the provider that served it, and then shuts down the agent.
+    """
     print("=" * 60)
     print("Custom Routing Example")
     print("=" * 60)
@@ -176,7 +200,11 @@ async def routing_example():
 
 
 async def function_calling_example():
-    """Function calling example (conceptual)"""
+    """
+    Demonstrates a conceptual example of model function-calling using a local Python function.
+    
+    Creates an agent, defines an example `get_weather(city: str) -> str` function to illustrate the shape of a callable the model might invoke, prints explanatory messages about function-calling requirements, and then shuts down the agent.
+    """
     print("=" * 60)
     print("Function Calling Example")
     print("=" * 60)
@@ -185,7 +213,15 @@ async def function_calling_example():
 
     # Define a function for the model to call
     def get_weather(city: str) -> str:
-        """Get weather for a city"""
+        """
+        Return a sample weather summary string for the specified city.
+        
+        Parameters:
+            city (str): City name to include in the returned weather summary.
+        
+        Returns:
+            str: A formatted weather string like "Weather in {city}: 72°F, sunny" (fixed sample values).
+        """
         return f"Weather in {city}: 72°F, sunny"
 
     # This would require proper function calling setup
@@ -220,7 +256,11 @@ async def sse_streaming_example():
 
 
 async def custom_config_example():
-    """Custom configuration example"""
+    """
+    Demonstrates creating an agent with a custom AgentConfig and generating text with it.
+    
+    Builds an AgentConfig (provider, model, temperature, max_tokens, system_prompt, streaming, enable_fallback), creates the agent, generates a haiku prompt, prints the response, and shuts down the agent.
+    """
     print("=" * 60)
     print("Custom Configuration Example")
     print("=" * 60)
@@ -246,7 +286,11 @@ async def custom_config_example():
 
 
 async def ipc_example():
-    """IPC communication example (for C++ integration)"""
+    """
+    Print example JSON-RPC-style IPC request and response payloads demonstrating how a C++ process might communicate with the agent over stdin/stdout.
+     
+    The function prints a sample "generate" request payload and a corresponding success response payload (including content, model, provider, and usage fields) to stdout for reference.
+    """
     print("=" * 60)
     print("IPC Communication Example")
     print("=" * 60)
@@ -288,7 +332,11 @@ async def ipc_example():
 
 
 async def main():
-    """Run all examples"""
+    """
+    Execute all example coroutines in sequence and print their outputs.
+    
+    Runs a predefined list of example async functions one after another, printing a header before running examples. If an example raises an exception, logs the error message for that example and continues with the next.
+    """
     print("\nManus LLM Agent Layer - Usage Examples")
     print("=" * 60)
     print()

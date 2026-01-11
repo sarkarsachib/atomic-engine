@@ -49,10 +49,25 @@ class ModelConfig:
     context_window: int = 8192
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Return a dictionary representation of this dataclass suitable for serialization.
+        
+        Returns:
+            dict: A mapping of field names to their values representing this instance.
+        """
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ModelConfig":
+        """
+        Constructs a ModelConfig from a dictionary.
+        
+        Parameters:
+            data (Dict[str, Any]): Dictionary containing fields for ModelConfig (e.g., name, provider, max_tokens, supports_streaming, cost_per_input, etc.).
+        
+        Returns:
+            ModelConfig: An instance populated with values from `data`.
+        """
         return cls(**data)
 
 
@@ -75,6 +90,12 @@ class ProviderConfig:
     health_check_interval: int = 300  # seconds
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize the provider configuration into a dictionary for persistence or inspection, masking sensitive credentials.
+        
+        Returns:
+            dict: Mapping of provider fields to values. The `api_key` value is masked as `"***"` if present, `models` is a list of each model's serialized dictionary.
+        """
         return {
             "name": self.name,
             "enabled": self.enabled,
@@ -94,6 +115,23 @@ class ProviderConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ProviderConfig":
+        """
+        Construct a ProviderConfig from a mapping of configuration values.
+        
+        Parameters:
+            data (Dict[str, Any]): Dictionary containing provider configuration. Expected keys include
+                "name", optional "enabled", "priority", "api_key", "api_base", "api_version",
+                "region", "models" (list of model dicts), "rate_limit_rpm", "rate_limit_tpm",
+                "timeout_seconds", "retry_count", "retry_backoff", and "health_check_interval".
+                If "api_key" is not present, the method will attempt to read it from the environment
+                using the provider-specific environment key returned by _env_key(name).
+        
+        Returns:
+            ProviderConfig: A ProviderConfig populated from the provided dictionary. Missing fields
+            are filled with sensible defaults (e.g., enabled=True, priority=1, rate_limit_rpm=60,
+            rate_limit_tpm=100000, timeout_seconds=60, retry_count=3, retry_backoff=1.0,
+            health_check_interval=300). Model entries are converted to ModelConfig via ModelConfig.from_dict.
+        """
         models = [ModelConfig.from_dict(m) for m in data.get("models", [])]
         return cls(
             name=data["name"],
@@ -114,7 +152,15 @@ class ProviderConfig:
 
     @staticmethod
     def _env_key(provider_name: str) -> str:
-        """Generate environment variable key for provider API key"""
+        """
+        Return the environment variable name used for a provider's API key, or `None` if the provider does not use an API key.
+        
+        Parameters:
+            provider_name (str): Provider identifier (case-insensitive).
+        
+        Returns:
+            str | None: Environment variable name (e.g., `OPENAI_API_KEY`) for known providers, `None` for providers that do not require an API key (e.g., "ollama"), or a fallback of `{PROVIDER}_API_KEY` using the uppercased provider name.
+        """
         env_map = {
             "openai": "OPENAI_API_KEY",
             "anthropic": "ANTHROPIC_API_KEY",
@@ -147,6 +193,16 @@ class LLMConfig:
     system_prompt: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize the LLMConfig into a plain dictionary suitable for persistence or transmission.
+        
+        Returns:
+            dict: A dictionary representation of the configuration. Keys include
+            "default_provider", "fallback_providers", "routing_strategy" (the enum value),
+            "providers" (a mapping of provider name to each provider's serialized dict),
+            and other top-level settings such as rate limits, feature flags, defaults, and
+            system_prompt.
+        """
         return {
             "default_provider": self.default_provider,
             "fallback_providers": self.fallback_providers,
@@ -169,6 +225,19 @@ class LLMConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LLMConfig":
+        """
+        Create an LLMConfig from a dictionary, applying sensible defaults for any missing fields.
+        
+        Parameters:
+            data (Dict[str, Any]): Mapping containing LLM configuration values (top-level keys such as
+                "default_provider", "fallback_providers", "routing_strategy", and "providers"). The
+                "providers" value, if present, should be a mapping of provider names to provider
+                configuration dictionaries and will be converted into ProviderConfig instances.
+        
+        Returns:
+            LLMConfig: An LLMConfig instance populated from `data`; fields not provided in `data`
+            are filled with predefined default values.
+        """
         providers = {}
         for name, pdata in data.get("providers", {}).items():
             providers[name] = ProviderConfig.from_dict(pdata)
@@ -198,7 +267,16 @@ class LLMConfig:
         return self.providers.get(name.lower())
 
     def get_model(self, provider: str, model_name: str) -> Optional[ModelConfig]:
-        """Get model configuration by provider and model name"""
+        """
+        Retrieve a model configuration for a given provider and model name.
+        
+        Parameters:
+            provider (str): Provider name (case-insensitive) to search within.
+            model_name (str): Exact model name to locate.
+        
+        Returns:
+            ModelConfig if a matching model is found, None otherwise.
+        """
         pconfig = self.get_provider(provider)
         if pconfig:
             for model in pconfig.models:
@@ -207,7 +285,12 @@ class LLMConfig:
         return None
 
     def get_healthy_providers(self) -> List[str]:
-        """Get list of enabled and healthy providers sorted by priority"""
+        """
+        Return the names of providers that are enabled, ordered by priority.
+        
+        Returns:
+            List[str]: Enabled provider names sorted by priority with lower numeric priority values first.
+        """
         return [
             name for name, config in sorted(
                 self.providers.items(),
@@ -221,6 +304,12 @@ class ConfigManager:
     """Manages LLM configuration from multiple sources"""
 
     def __init__(self, config_paths: Optional[List[str]] = None):
+        """
+        Initialize the ConfigManager with candidate configuration file paths and prepare internal state.
+        
+        Parameters:
+            config_paths: Optional list of file paths to search, in order, for a configuration file. If omitted, a sensible default list of common config locations is used (including user home).
+        """
         self.config_paths = config_paths or [
             "config/config.toml",
             "config/llm.toml",
@@ -231,7 +320,13 @@ class ConfigManager:
         self._watch_handlers: List = []
 
     def load(self) -> LLMConfig:
-        """Load configuration from the first available config file"""
+        """
+        Load configuration from the first readable file in self.config_paths, falling back to defaults.
+        
+        Tries each configured path in order and uses the first file that can be successfully parsed. If a file is found and loaded, stores it on self._config and returns it. If no valid file is found, creates, stores, and returns a default LLMConfig.
+        Returns:
+            LLMConfig: The loaded configuration or a newly created default configuration.
+        """
         for path_str in self.config_paths:
             path = Path(path_str)
             if path.exists():
@@ -249,7 +344,17 @@ class ConfigManager:
         return self._config
 
     def _load_from_file(self, path: Path) -> LLMConfig:
-        """Load configuration from a file"""
+        """
+        Load a configuration file and return an LLMConfig constructed from its contents.
+        
+        Supports TOML ('.toml'), JSON ('.json'), and YAML ('.yaml' or '.yml') formats.
+        
+        Returns:
+            LLMConfig: Configuration parsed from the provided file.
+        
+        Raises:
+            ValueError: If the file extension is not one of the supported formats.
+        """
         suffix = path.suffix.lower()
 
         if suffix == '.toml':
@@ -262,7 +367,12 @@ class ConfigManager:
             raise ValueError(f"Unsupported config format: {suffix}")
 
     def _load_toml(self, path: Path) -> LLMConfig:
-        """Load TOML configuration"""
+        """
+        Load configuration from a TOML file and return an LLMConfig.
+        
+        Returns:
+            LLMConfig: Parsed configuration built from the TOML file contents.
+        """
         try:
             import tomllib
         except ImportError:
@@ -273,13 +383,29 @@ class ConfigManager:
         return self._parse_config_data(data)
 
     def _load_json(self, path: Path) -> LLMConfig:
-        """Load JSON configuration"""
+        """
+        Load a JSON configuration file and construct an LLMConfig from its contents.
+        
+        Parameters:
+            path (Path): Filesystem path to the JSON configuration file.
+        
+        Returns:
+            LLMConfig: Configuration built from the parsed JSON data.
+        """
         with open(path) as f:
             data = json.load(f)
         return self._parse_config_data(data)
 
     def _load_yaml(self, path: Path) -> LLMConfig:
-        """Load YAML configuration"""
+        """
+        Load and parse a YAML configuration file into an LLMConfig.
+        
+        Returns:
+            LLMConfig: An LLMConfig built from the YAML file contents.
+        
+        Raises:
+            ImportError: If PyYAML is not installed.
+        """
         try:
             import yaml
         except ImportError:
@@ -290,7 +416,15 @@ class ConfigManager:
         return self._parse_config_data(data)
 
     def _parse_config_data(self, data: Dict[str, Any]) -> LLMConfig:
-        """Parse configuration data into LLMConfig"""
+        """
+        Builds an LLMConfig from raw configuration data, applying environment-variable overrides and provider defaults.
+        
+        Parameters:
+            data (Dict[str, Any]): Parsed configuration mapping (expected keys include "providers" and top-level settings like "default_provider", "routing_strategy", and rate/feature flags).
+        
+        Returns:
+            LLMConfig: Configuration object with providers normalized (lowercased keys), provider models populated with defaults when absent, and top-level fields set to provided values or sensible defaults.
+        """
         # Apply environment variable overrides
         data = self._apply_env_overrides(data)
 
@@ -326,7 +460,15 @@ class ConfigManager:
         )
 
     def _apply_env_overrides(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Apply environment variable overrides to configuration"""
+        """
+        Inject environment variable values into the parsed configuration dictionary for known provider-specific keys.
+        
+        Parameters:
+            data (Dict[str, Any]): Parsed configuration data (mutable) to apply environment overrides to.
+        
+        Returns:
+            Dict[str, Any]: The same configuration dictionary with environment-provided values set for matching provider keys (e.g., API keys, endpoints).
+        """
         # Provider API keys
         env_mappings = {
             "OPENAI_API_KEY": ("providers", "openai", "api_key"),
@@ -348,7 +490,15 @@ class ConfigManager:
         return data
 
     def _get_default_models(self, provider: str) -> List[ModelConfig]:
-        """Get default model configurations for a provider"""
+        """
+        Return default model configurations for the specified provider.
+        
+        Parameters:
+            provider (str): Provider name (case-insensitive). Supported values include "openai", "anthropic", "bedrock", "ollama", and "azure".
+        
+        Returns:
+            List[ModelConfig]: A list of default ModelConfig instances for the provider; an empty list if the provider is not recognized.
+        """
         defaults = {
             "openai": [
                 ModelConfig(name="gpt-4o", provider="openai", max_tokens=16384,
@@ -428,7 +578,12 @@ class ConfigManager:
         return defaults.get(provider.lower(), [])
 
     def _create_default_config(self) -> LLMConfig:
-        """Create default configuration"""
+        """
+        Builds a default LLMConfig with a predefined set of providers and their default models.
+        
+        Returns:
+            LLMConfig: Configuration containing enabled provider entries for "openai", "anthropic", "bedrock", "ollama", and "azure"; each provider is assigned a priority and populated with its default ModelConfig list.
+        """
         config = LLMConfig()
         default_providers = ["openai", "anthropic", "bedrock", "ollama", "azure"]
 
@@ -443,13 +598,24 @@ class ConfigManager:
         return config
 
     def get_config(self) -> LLMConfig:
-        """Get the current configuration"""
+        """
+        Get the current LLM configuration, loading it if not already loaded.
+        
+        Returns:
+            LLMConfig: The active configuration object.
+        """
         if self._config is None:
             self.load()
         return self._config
 
     def update_config(self, updates: Dict[str, Any]) -> None:
-        """Update configuration at runtime"""
+        """
+        Apply runtime updates to the loaded LLM configuration.
+        
+        Ensures a configuration is loaded, then sets top-level attributes on the in-memory LLMConfig for any keys present in the provided mapping. Unknown keys are ignored; updates are applied in-place.
+        Parameters:
+            updates (Dict[str, Any]): Mapping of LLMConfig attribute names to new values to apply.
+        """
         if self._config is None:
             self.load()
 
@@ -460,7 +626,17 @@ class ConfigManager:
         logger.info("Configuration updated at runtime")
 
     def switch_provider(self, provider_name: str) -> bool:
-        """Switch the default provider at runtime"""
+        """
+        Set the LLM configuration's default provider to the given provider name.
+        
+        If the configuration is not yet loaded, it will be loaded first. The lookup is case-insensitive; when successful, the manager's `default_provider` is updated to the provider name in lowercase and `True` is returned. If no matching provider is found, the configuration is unchanged and `False` is returned.
+        
+        Parameters:
+            provider_name (str): The provider name to set as default (case-insensitive).
+        
+        Returns:
+            bool: `True` if the default provider was changed to `provider_name`, `False` otherwise.
+        """
         if self._config is None:
             self.load()
 
@@ -473,7 +649,17 @@ class ConfigManager:
             return False
 
     def save(self, path: str) -> None:
-        """Save current configuration to a file"""
+        """
+        Persist the current LLM configuration to disk using the file format inferred from the given path.
+        
+        If the manager has not yet loaded a configuration, the configuration is loaded before saving.
+        
+        Parameters:
+            path (str): Filesystem path where the configuration will be written. Supported file extensions are `.toml` and `.json`.
+        
+        Raises:
+            ValueError: If the file extension is not `.toml` or `.json`.
+        """
         if self._config is None:
             self.load()
 
@@ -488,14 +674,24 @@ class ConfigManager:
             raise ValueError(f"Unsupported config format: {suffix}")
 
     def _save_toml(self, path: Path) -> None:
-        """Save configuration as TOML"""
+        """
+        Write the manager's current configuration to the given file path in TOML format, replacing any existing file.
+        
+        Parameters:
+            path (Path): Destination file path where the TOML configuration will be written.
+        """
         import tomllib
 
         with open(path, 'wb') as f:
             tomllib.dump(self._config.to_dict(), f)
 
     def _save_json(self, path: Path) -> None:
-        """Save configuration as JSON"""
+        """
+        Write the current LLM configuration to the given path in JSON format, pretty-printed with 2-space indentation.
+        
+        Parameters:
+            path (Path): Filesystem path to write the JSON configuration to; an existing file will be overwritten.
+        """
         with open(path, 'w') as f:
             json.dump(self._config.to_dict(), f, indent=2)
 
@@ -511,7 +707,12 @@ _config_manager: Optional[ConfigManager] = None
 
 
 def get_config_manager() -> ConfigManager:
-    """Get the global configuration manager instance"""
+    """
+    Return the singleton global ConfigManager used for managing LLM configuration.
+    
+    Returns:
+        ConfigManager: The cached global ConfigManager instance; one is created and stored on first call.
+    """
     global _config_manager
     if _config_manager is None:
         _config_manager = ConfigManager()
@@ -519,5 +720,10 @@ def get_config_manager() -> ConfigManager:
 
 
 def get_config() -> LLMConfig:
-    """Get the global configuration"""
+    """
+    Retrieve the global LLM configuration used by the application.
+    
+    Returns:
+        The active LLMConfig instance.
+    """
     return get_config_manager().get_config()

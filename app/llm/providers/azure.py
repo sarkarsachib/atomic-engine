@@ -61,6 +61,22 @@ class AzureProvider(BaseProvider):
         api_key: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Initialize the provider, build Azure-specific configuration from the given inputs and environment, and set up internal client defaults.
+        
+        Parameters:
+            config (Optional[ProviderConfig]): Optional common provider configuration to derive defaults (api_base, api_version, timeout_seconds, retry_count).
+            api_key (Optional[str]): Optional explicit Azure OpenAI API key that overrides environment-derived values.
+            **kwargs: Optional Azure-specific overrides. Recognized keys:
+                - azure_endpoint: explicit Azure OpenAI endpoint URL.
+                - api_version: Azure API version string.
+                - azure_deployment: Azure deployment name to use for requests.
+                - timeout: request timeout in seconds.
+                - max_retries: maximum retry attempts.
+        
+        Raises:
+            ImportError: if the OpenAI SDK required for Azure integration is not available.
+        """
         super().__init__(config, api_key, **kwargs)
 
         if not AZURE_AVAILABLE:
@@ -80,11 +96,20 @@ class AzureProvider(BaseProvider):
 
     @property
     def default_model(self) -> str:
-        """Default model for Azure"""
+        """
+        Get the provider's default model identifier.
+        
+        Returns:
+            The default model name used when no model is specified.
+        """
         return self._default_model
 
     async def initialize(self) -> None:
-        """Initialize Azure OpenAI client"""
+        """
+        Initialize the asynchronous Azure OpenAI client and verify connectivity.
+        
+        Creates and assigns an AsyncAzureOpenAI client using values from the provider's AzureConfig and performs a health check to validate credentials. Raises any exception encountered during initialization.
+        """
         if self._client is not None:
             return
 
@@ -107,14 +132,26 @@ class AzureProvider(BaseProvider):
             raise
 
     async def shutdown(self) -> None:
-        """Shutdown Azure OpenAI client"""
+        """
+        Close the provider's Azure OpenAI client and reset its internal client reference.
+        
+        Closes the underlying AsyncAzureOpenAI client if initialized, awaits its shutdown, and sets the provider's client to None.
+        """
         if self._client:
             await self._client.close()
             self._client = None
             logger.info("Azure provider shut down")
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        """Generate non-streaming response"""
+        """
+        Produce a single, non-streaming LLM completion for the given request.
+        
+        Parameters:
+            request (LLMRequest): Request containing messages and generation settings (model, temperature, max_tokens, stop tokens, penalties, logit_bias, user, etc.).
+        
+        Returns:
+            LLMResponse: Parsed response containing the generated content, model identifier, token usage, finish reason, provider name, request_id, and the raw provider response.
+        """
         await self.initialize()
 
         model_config = self._get_model_config(request.model)
@@ -156,7 +193,18 @@ class AzureProvider(BaseProvider):
             raise self._create_error(str(e))
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
-        """Generate streaming response"""
+        """
+        Stream incremental model output as a sequence of StreamChunk objects until the response is complete.
+        
+        Parameters:
+            request (LLMRequest): The generation request; must have `stream=True`. Message content, model, temperature, max_tokens, and stop tokens are taken from this object.
+        
+        Returns:
+            AsyncIterator[StreamChunk]: An iterator that yields StreamChunk instances representing incremental output. Each chunk contains the cumulative content so far, the latest delta, chunk_index, is_final flag (True for the final chunk), finish_reason, token usage (when available), and the raw provider chunk.
+        
+        Raises:
+            ValueError: If `request.stream` is False.
+        """
         await self.initialize()
 
         if not request.stream:
@@ -213,7 +261,15 @@ class AzureProvider(BaseProvider):
             raise self._create_error(str(e))
 
     def _prepare_messages(self, request: LLMRequest) -> List[Dict[str, str]]:
-        """Prepare messages for Azure API (same as OpenAI)"""
+        """
+        Builds the list of chat messages to send to the Azure OpenAI chat completion endpoint.
+        
+        Parameters:
+            request (LLMRequest): Request containing an optional system_prompt and a sequence of user/assistant messages.
+        
+        Returns:
+            messages (List[Dict[str, str]]): Ordered list of message objects with keys "role" and "content", including the system message first if present followed by the request messages.
+        """
         messages = []
 
         if request.system_prompt:
@@ -224,7 +280,16 @@ class AzureProvider(BaseProvider):
         return messages
 
     def _parse_response(self, response, model: str, latency_ms: float) -> LLMResponse:
-        """Parse Azure response into standard format"""
+        """
+        Convert an Azure chat completion response into the library's standard LLMResponse.
+        
+        Parameters:
+            response: The raw Azure chat completion response object to parse.
+            model (str): The model or deployment name associated with the response.
+        
+        Returns:
+            LLMResponse: Parsed response containing content, model, token usage (prompt/completion/total), finish reason, provider name, request ID, raw response dict, and any function call payload if present.
+        """
         choice = response.choices[0]
         message = choice.message
 
@@ -246,7 +311,17 @@ class AzureProvider(BaseProvider):
         )
 
     def _parse_stream_chunk(self, chunk) -> tuple:
-        """Parse streaming chunk (same as OpenAI)"""
+        """
+        Extract delta text, finish reason, and token usage from a streaming response chunk.
+        
+        Parameters:
+            chunk: Streaming response chunk object from the Azure/OpenAI chat completions stream.
+        
+        Returns:
+            tuple: (`delta`, `finish_reason`, `usage`) where `delta` is the text fragment from the chunk (empty string if none),
+            `finish_reason` is the finish reason string or `None`, and `usage` is a `TokenUsage` instance built from the chunk's
+            usage data or `None` if usage is unavailable.
+        """
         delta = ""
         finish_reason = None
         usage = None
@@ -266,7 +341,19 @@ class AzureProvider(BaseProvider):
         return delta, finish_reason, usage
 
     def _handle_api_error(self, error, model: str) -> None:
-        """Handle Azure API errors"""
+        """
+        Map Azure API error responses to provider-specific exceptions.
+        
+        Parameters:
+            error: The raw API error object returned by the Azure client; must expose `status_code`, `message`, and optionally `response` (with `text` and `headers`).
+            model (str): The model or deployment name involved in the request; used for context in certain errors.
+        
+        Raises:
+            AuthenticationError: When the API returns a 401 status (authentication failure).
+            RateLimitError: When the API returns a 429 status (rate limited). May include `retry_after_seconds` parsed from the `Retry-After` header when available.
+            ContextLengthError: When the API returns a 400 status and the error message indicates a context length problem.
+            ProviderError: For other 400-level bad requests or any other non-handled status codes; includes status code and response body when available.
+        """
         status_code = error.status_code
         response_body = error.response.text if error.response else None
 
@@ -306,7 +393,14 @@ class AzureProvider(BaseProvider):
             )
 
     async def count_tokens(self, text: str) -> int:
-        """Count tokens using OpenAI's tokenizer"""
+        """
+        Estimate the number of tokens in `text` using the provider's tokenizer.
+        
+        Attempts to obtain an exact prompt token count by issuing a minimal request to the configured model; if that request fails, falls back to a heuristic of floor(len(text) / 4).
+        
+        Returns:
+            int: Number of tokens estimated for `text`.
+        """
         await self.initialize()
 
         try:
@@ -320,13 +414,27 @@ class AzureProvider(BaseProvider):
             return len(text) // 4
 
     async def get_available_models(self) -> List[str]:
-        """Get list of available Azure deployments"""
+        """
+        Return a list of common Azure OpenAI deployment names.
+        
+        Azure does not provide a stable API to enumerate deployments, so this returns a hard-coded set of commonly used deployment identifiers.
+        
+        Returns:
+            List[str]: Deployment names such as "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", and "gpt-35-turbo".
+        """
         # Azure doesn't have a direct model listing API
         # Return common deployments
         return ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-35-turbo"]
 
     async def health_check(self) -> bool:
-        """Check Azure API health"""
+        """
+        Verify connectivity to the Azure OpenAI service using a minimal completion request.
+        
+        Uses the configured `azure_deployment` if present or the provider's default model and sends a trivial prompt to validate the API is reachable.
+        
+        Returns:
+            bool: `true` if the health check succeeds (the minimal request completes), `false` otherwise.
+        """
         try:
             deployment = self.azure_config.azure_deployment or self._default_model
             await self._client.chat.completions.create(

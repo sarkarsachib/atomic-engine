@@ -31,7 +31,18 @@ logger = logging.getLogger(__name__)
 
 # Lazy load providers for internal use
 def _get_provider_class(provider_name: str):
-    """Get provider class by name (lazy loaded)"""
+    """
+    Get the provider class for a given provider name by lazily importing its module.
+    
+    Parameters:
+        provider_name (str): Provider identifier, e.g. "openai", "anthropic", "bedrock", "ollama", or "azure".
+    
+    Returns:
+        The provider class corresponding to the given provider name.
+    
+    Raises:
+        ValueError: If the provider_name is not one of the supported providers.
+    """
     if provider_name == "openai":
         from .providers.openai import OpenAIProvider
         return OpenAIProvider
@@ -67,6 +78,25 @@ class AgentConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AgentConfig":
+        """
+        Create an AgentConfig from a dictionary of configuration values.
+        
+        Parameters:
+            data (Dict[str, Any]): Mapping containing agent configuration. Recognized keys and defaults:
+                - "provider": provider name (default: "openai")
+                - "model": model name (default: None)
+                - "temperature": sampling temperature (default: 0.7)
+                - "max_tokens": maximum tokens (default: 4096)
+                - "system_prompt": system prompt text (default: None)
+                - "streaming": enable streaming (default: True)
+                - "routing_strategy": routing strategy name (default: "priority")
+                - "fallback_providers": list of fallback provider names (default: [])
+                - "timeout": request timeout seconds (default: 60)
+                - "enable_fallback": enable fallback behavior (default: True)
+        
+        Returns:
+            AgentConfig: Configured AgentConfig instance populated from `data`.
+        """
         return cls(
             provider=data.get("provider", "openai"),
             model=data.get("model"),
@@ -81,6 +111,14 @@ class AgentConfig:
         )
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize the AgentConfig into a plain dictionary suitable for storage or transmission.
+        
+        Returns:
+            dict: Mapping containing the agent configuration fields: `provider`, `model`,
+            `temperature`, `max_tokens`, `system_prompt`, `streaming`, `routing_strategy`,
+            `fallback_providers`, `timeout`, and `enable_fallback`.
+        """
         return {
             "provider": self.provider,
             "model": self.model,
@@ -103,6 +141,12 @@ class Message:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize the Message to a dictionary suitable for JSON encoding.
+        
+        Returns:
+            Dict[str, Any]: Dictionary with keys "role", "content", and "timestamp" where "timestamp" is an ISO 8601 string.
+        """
         return {
             "role": self.role,
             "content": self.content,
@@ -111,6 +155,19 @@ class Message:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
+        """
+        Create a Message from a dictionary representation.
+        
+        Parameters:
+            data (Dict[str, Any]): Dictionary with keys "role" and "content". May include "timestamp" as an ISO 8601 string.
+        
+        Returns:
+            Message: A Message instance with the parsed timestamp (uses current time if "timestamp" is not provided).
+        
+        Raises:
+            KeyError: If "role" or "content" is missing from `data`.
+            ValueError: If "timestamp" is provided but is not a valid ISO 8601 string.
+        """
         return cls(
             role=data["role"],
             content=data["content"],
@@ -128,12 +185,28 @@ class Conversation:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def add_message(self, role: str, content: str) -> Message:
-        """Add a message to the conversation"""
+        """
+        Append a new message with the given role and content to this conversation.
+        
+        Returns:
+            The appended Message instance (with its timestamp set).
+        """
         message = Message(role=role, content=content)
         self.messages.append(message)
         return message
 
     def to_dict(self) -> Dict[str, Any]:
+        """
+        Serialize the conversation into a JSON-serializable dictionary.
+        
+        Returns:
+            A dictionary with the following keys:
+            - `id` (str): Conversation identifier.
+            - `messages` (List[Dict[str, Any]]): Ordered list of messages as dictionaries.
+            - `system_prompt` (Optional[str]): Conversation-level system prompt, or `None`.
+            - `created_at` (str): ISO 8601 formatted creation timestamp.
+            - `metadata` (Dict[str, Any]): Arbitrary metadata associated with the conversation.
+        """
         return {
             "id": self.id,
             "messages": [m.to_dict() for m in self.messages],
@@ -144,6 +217,20 @@ class Conversation:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Conversation":
+        """
+        Constructs a Conversation instance from a dictionary representation.
+        
+        Parameters:
+            data (Dict[str, Any]): Dictionary containing conversation fields. Expected keys:
+                - "id" (str, optional): Conversation id; a new UUID is generated if missing.
+                - "messages" (List[Dict], optional): List of message dicts parsed with Message.from_dict.
+                - "system_prompt" (str, optional): Optional system prompt for the conversation.
+                - "created_at" (str, optional): ISO-8601 timestamp; parsed into a datetime. If missing, current time is used.
+                - "metadata" (Dict[str, Any], optional): Arbitrary metadata for the conversation.
+        
+        Returns:
+            Conversation: A Conversation populated from the provided dictionary, with sensible defaults for missing fields.
+        """
         return cls(
             id=data.get("id", str(uuid.uuid4())),
             messages=[Message.from_dict(m) for m in data.get("messages", [])],
@@ -153,7 +240,15 @@ class Conversation:
         )
 
     def get_message_history(self, include_system: bool = True) -> List[Dict[str, str]]:
-        """Get message history for API calls"""
+        """
+        Return ordered message history suitable for API requests.
+        
+        Parameters:
+        	include_system (bool): If True and a system prompt exists, include a system message at the start of the history.
+        
+        Returns:
+        	List[Dict[str, str]]: Ordered list of messages where each entry has keys `"role"` and `"content"`. When included, the system message appears first followed by conversation messages in chronological order.
+        """
         messages = []
         if include_system and self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
@@ -178,6 +273,14 @@ class LLMAgent:
         llm_config: Optional[LLMConfig] = None,
         config_path: Optional[str] = None,
     ):
+        """
+        Initialize a new LLMAgent instance and set up its configuration and empty runtime state.
+        
+        Parameters:
+            config (Optional[AgentConfig]): Agent configuration to use; when None, a default AgentConfig is created.
+            llm_config (Optional[LLMConfig]): Optional low-level LLM configuration (provider/model-specific settings).
+            config_path (Optional[str]): Optional filesystem path to the agent configuration file.
+        """
         self.agent_config = config or AgentConfig()
         self._llm_config = llm_config
         self._config_path = config_path
@@ -196,7 +299,14 @@ class LLMAgent:
         self._initialized = False
 
     async def initialize(self) -> None:
-        """Initialize the agent and all providers"""
+        """
+        Initialize the agent's configuration, providers, and runtime components.
+        
+        This loads the LLM configuration if missing, creates the token tracker and rate limiter, initializes providers, and constructs the router, stream handler, and fallback chain. On success the agent is marked initialized.
+        
+        Raises:
+            ConfigurationError: If initialization fails for any reason.
+        """
         if self._initialized:
             return
 
@@ -261,7 +371,11 @@ class LLMAgent:
                 continue
 
     async def shutdown(self) -> None:
-        """Shutdown all providers and cleanup"""
+        """
+        Shuts down all configured providers and cleans up agent state.
+        
+        Shuts down each loaded provider, stops the token tracker if present, and marks the agent as uninitialized.
+        """
         for provider in self._providers.values():
             try:
                 await provider.shutdown()
@@ -283,15 +397,15 @@ class LLMAgent:
         **kwargs,
     ) -> LLMResponse:
         """
-        Generate a response to a prompt
-
-        Args:
-            prompt: The user prompt
-            conversation_id: Optional conversation ID for context
-            **kwargs: Additional arguments (temperature, max_tokens, etc.)
-
+        Generate an LLM response for the given prompt, using the conversation context when a conversation_id is provided.
+        
+        Parameters:
+            prompt: The user prompt to send to the model.
+            conversation_id: Optional conversation identifier whose message history will be included in the request.
+            **kwargs: Optional request overrides (e.g., `model`, `temperature`, `max_tokens`, `system_prompt`, and metadata).
+        
         Returns:
-            LLMResponse with content and usage
+            LLMResponse containing the model output content, response metadata, and usage information.
         """
         await self.initialize()
 
@@ -314,7 +428,18 @@ class LLMAgent:
         return response
 
     async def _generate_with_provider(self, request: LLMRequest) -> LLMResponse:
-        """Generate with specific provider"""
+        """
+        Generate a response using the provider specified in the request or the agent's default provider.
+        
+        Parameters:
+            request (LLMRequest): The prepared LLM request containing prompt, model overrides, and metadata.
+        
+        Returns:
+            LLMResponse: The response produced by the selected provider.
+        
+        Raises:
+            ConfigurationError: If the resolved provider is not loaded or available.
+        """
         provider_name = request.metadata.get("provider", self.agent_config.provider)
         provider = self._providers.get(provider_name)
 
@@ -377,15 +502,15 @@ class LLMAgent:
         **kwargs,
     ) -> AsyncIterator[str]:
         """
-        Stream response as SSE events
-
-        Args:
-            prompt: The user prompt
-            conversation_id: Optional conversation ID for context
-            **kwargs: Additional arguments
-
+        Stream the model's response as Server-Sent Events (SSE).
+        
+        Parameters:
+            prompt (str): The user prompt to send to the model.
+            conversation_id (Optional[str]): Optional conversation ID used to provide context for the request.
+            **kwargs: Additional request overrides (e.g., model, temperature, max_tokens, provider, metadata).
+        
         Yields:
-            SSE formatted event strings
+            str: SSE-formatted event strings representing incremental stream events from the provider.
         """
         await self.initialize()
 
@@ -415,7 +540,19 @@ class LLMAgent:
         system_prompt: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Create a new conversation and return its ID"""
+        """
+        Create a new conversation, store it in the agent's conversation map, and return its identifier.
+        
+        If `system_prompt` is not provided, the agent's configured system prompt is used. `metadata`
+        is attached to the conversation and defaults to an empty dict.
+        
+        Parameters:
+            system_prompt (Optional[str]): Optional system prompt for the conversation.
+            metadata (Optional[Dict[str, Any]]): Optional metadata to associate with the conversation.
+        
+        Returns:
+            str: The newly created conversation's unique identifier.
+        """
         conversation = Conversation(
             system_prompt=system_prompt or self.agent_config.system_prompt,
             metadata=metadata or {},
@@ -424,11 +561,21 @@ class LLMAgent:
         return conversation.id
 
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
-        """Get a conversation by ID"""
+        """
+        Retrieve a conversation by its identifier.
+        
+        Returns:
+            The Conversation with the given id, or `None` if no conversation exists for that id.
+        """
         return self._conversations.get(conversation_id)
 
     def delete_conversation(self, conversation_id: str) -> bool:
-        """Delete a conversation"""
+        """
+        Remove a conversation with the given ID from the agent's conversation store.
+        
+        Returns:
+            `true` if the conversation existed and was deleted, `false` otherwise.
+        """
         if conversation_id in self._conversations:
             del self._conversations[conversation_id]
             return True
@@ -442,16 +589,16 @@ class LLMAgent:
         **kwargs,
     ) -> LLMResponse:
         """
-        Send a message in a conversation
-
-        Args:
-            message: The user message
-            conversation_id: Conversation ID (creates new if not found)
-            create_if_missing: Create conversation if not found
-            **kwargs: Additional arguments
-
+        Send a message to a conversation, append the user's message and the assistant's reply to the conversation, and return the assistant's response.
+        
+        If no conversation_id is provided or the specified conversation is missing, a new conversation is created when create_if_missing is True; otherwise a ValueError is raised.
+        
+        Parameters:
+            conversation_id (Optional[str]): ID of the conversation to use; if omitted or not found and create_if_missing is True, a new conversation is created.
+            create_if_missing (bool): When True, create a new conversation if the given conversation_id does not exist.
+        
         Returns:
-            LLMResponse
+            LLMResponse: The assistant's response including content and associated metadata.
         """
         await self.initialize()
 
@@ -488,7 +635,21 @@ class LLMAgent:
         create_if_missing: bool = True,
         **kwargs,
     ) -> AsyncIterator[StreamChunk]:
-        """Stream a chat response"""
+        """
+        Start a streaming chat exchange: ensure the agent is initialized, add the user's message to the conversation, and yield incremental response chunks from the model.
+        
+        Parameters:
+            message (str): The user message to send.
+            conversation_id (Optional[str]): ID of the conversation to use; if omitted a new conversation is created.
+            create_if_missing (bool): If True, create a new conversation when the provided ID does not exist; otherwise raise.
+            **kwargs: Provider/model overrides and request options forwarded to the streaming call.
+        
+        Returns:
+            AsyncIterator[StreamChunk]: An async iterator that yields incremental stream chunks from the model; the final chunk indicates completion.
+        
+        Raises:
+            ValueError: If a conversation_id is provided but not found and create_if_missing is False.
+        """
         await self.initialize()
 
         if not conversation_id:
@@ -515,7 +676,28 @@ class LLMAgent:
         conversation_id: Optional[str],
         **kwargs,
     ) -> LLMRequest:
-        """Build an LLMRequest from parameters"""
+        """
+        Constructs an LLMRequest using the given prompt, optional conversation context, and override options.
+        
+        If a conversation_id matches a stored conversation, the conversation's message history is used and its last user message is replaced with the provided prompt. Options passed via kwargs override corresponding agent defaults.
+        
+        Parameters:
+            prompt (str): The user's prompt to include as the latest user message.
+            conversation_id (Optional[str]): ID of a conversation whose history should be used as context, if present.
+            **kwargs: Optional overrides and request-specific fields. Recognized keys include:
+                - model (str): Model name to use.
+                - temperature (float)
+                - max_tokens (int)
+                - streaming (bool)
+                - system_prompt (str)
+                - functions, function_call, stop
+                - presence_penalty, frequency_penalty, user
+                - provider (str)
+                - metadata (dict): extra metadata to merge into the request metadata.
+        
+        Returns:
+            LLMRequest: Request populated with messages, model, sampling parameters, system prompt, function settings, and metadata (including conversation_id and provider).
+        """
         # Get conversation context
         messages = [{"role": "user", "content": prompt}]
 
@@ -555,7 +737,15 @@ class LLMAgent:
     # ==================== Provider Management ====================
 
     async def switch_provider(self, provider: str, model: Optional[str] = None) -> bool:
-        """Switch the active provider at runtime"""
+        """
+        Change the agent's active provider and optionally set its default model.
+        
+        Parameters:
+            model (Optional[str]): Optional model identifier to set as the agent's default for the new provider.
+        
+        Returns:
+            `True` if the provider was available and the agent was switched, `False` otherwise.
+        """
         if provider not in self._providers:
             logger.warning(f"Provider {provider} not available")
             return False
@@ -568,11 +758,20 @@ class LLMAgent:
         return True
 
     def get_available_providers(self) -> List[str]:
-        """Get list of available providers"""
+        """
+        Return the names of currently loaded providers.
+        
+        Returns:
+            List[str]: A list of provider names that have been initialized and are available.
+        """
         return list(self._providers.keys())
 
     async def get_provider_status(self) -> Dict[str, Dict[str, Any]]:
-        """Get status of all providers"""
+        """
+        Collects the health status for each loaded provider.
+        
+        @returns Dict[str, Dict[str, Any]]: A mapping from provider name to its health status as a dictionary.
+        """
         status = {}
         for name, provider in self._providers.items():
             status[name] = provider.health_status.to_dict()
@@ -581,19 +780,39 @@ class LLMAgent:
     # ==================== Usage & Metrics ====================
 
     def get_usage_stats(self) -> Dict[str, Any]:
-        """Get token usage statistics"""
+        """
+        Retrieve current token usage statistics tracked by the agent.
+        
+        Returns:
+            stats (Dict[str, Any]): A dictionary of usage statistics from the TokenTracker, or an empty dict if no token tracker is configured.
+        """
         if self._token_tracker:
             return self._token_tracker.get_stats()
         return {}
 
     def get_usage_summary(self, days: int = 1) -> Dict[str, Any]:
-        """Get usage summary"""
+        """
+        Return a summary of token usage over the past `days` days.
+        
+        Parameters:
+            days (int): Number of days to include in the summary (default 1).
+        
+        Returns:
+            Dict[str, Any]: Aggregated usage metrics for the requested period, or an empty dict if no token tracker is configured.
+        """
         if self._token_tracker:
             return self._token_tracker.get_summary(days).to_dict()
         return {}
 
     def get_routing_metrics(self) -> Dict[str, Any]:
-        """Get routing metrics"""
+        """
+        Retrieve routing metrics collected by the agent's router.
+        
+        If no router is configured, returns an empty dict.
+        
+        Returns:
+            Dict[str, Any]: Mapping of metric names to their values; empty if router is unavailable.
+        """
         if self._router:
             return self._router.get_metrics()
         return {}
@@ -601,7 +820,14 @@ class LLMAgent:
     # ==================== IPC Interface ====================
 
     def to_ipc_message(self, response: LLMResponse) -> str:
-        """Convert response to IPC-friendly format"""
+        """
+        Serialize an LLMResponse into an IPC-friendly JSON string.
+        
+        The produced JSON contains the following keys: `type` (set to "response"), `content`, `model`, `provider`, `usage` (as a dict), `finish_reason`, `request_id`, and `timestamp` (ISO 8601).
+        
+        Returns:
+            A JSON-formatted string containing the response fields for IPC consumption.
+        """
         return json.dumps({
             "type": "response",
             "content": response.content,
@@ -615,7 +841,18 @@ class LLMAgent:
 
     @classmethod
     def from_ipc_message(cls, message: str) -> Dict[str, Any]:
-        """Parse IPC message"""
+        """
+        Parse an IPC-formatted JSON string into a Python dictionary.
+        
+        Parameters:
+            message (str): IPC message as a JSON-encoded string.
+        
+        Returns:
+            dict: Dictionary representation of the parsed IPC message.
+        
+        Raises:
+            json.JSONDecodeError: If the message is not valid JSON.
+        """
         return json.loads(message)
 
 
@@ -624,11 +861,14 @@ async def create_agent(
     config_path: Optional[str] = None,
 ) -> LLMAgent:
     """
-    Factory function to create and initialize an LLM agent
-
-    Usage:
-        agent = await create_agent()
-        response = await agent.generate("Hello!")
+    Create and initialize an LLMAgent instance.
+    
+    Parameters:
+        config (Optional[AgentConfig]): Optional agent configuration to use. If omitted, configuration may be loaded from `config_path` or defaults.
+        config_path (Optional[str]): Optional filesystem path to a configuration file to load if no `config` is provided.
+    
+    Returns:
+        LLMAgent: An initialized LLMAgent ready to handle requests.
     """
     agent = LLMAgent(config=config, config_path=config_path)
     await agent.initialize()
@@ -641,10 +881,15 @@ async def stream_response(
     callback: Optional[callable] = None,
 ) -> str:
     """
-    Convenience function to stream a response
-
-    Usage:
-        response = await stream_response("Tell me a story", callback=print)
+    Stream a response to a prompt using a temporary LLMAgent and return the final accumulated content.
+    
+    Parameters:
+        prompt (str): The user prompt to send to the agent.
+        config (Optional[AgentConfig]): Optional agent configuration used to create the temporary agent.
+        callback (Optional[callable]): Optional callable invoked with each streamed chunk's `delta` as it arrives.
+    
+    Returns:
+        str: The final response content produced by the agent.
     """
     agent = await create_agent(config)
     full_response = ""
@@ -710,7 +955,23 @@ async def run_cli():
 
 
 async def handle_ipc_request(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle IPC request from C++ orchestrator"""
+    """
+    Dispatches IPC commands from a C++ orchestrator to an LLMAgent and returns a JSON-serializable result.
+    
+    Parameters:
+        data (Dict[str, Any]): IPC payload containing at least a "command" string and an optional
+            "params" dictionary. Supported commands: "generate", "stream", "chat", "providers",
+            "switch", "stats", "health".
+    
+    Returns:
+        Dict[str, Any]: A JSON-serializable dictionary with a "status" key ("success" or "error")
+        and command-specific fields:
+          - "response": serialized LLM response for "generate" and "chat"
+          - "chunks": list of serialized stream chunks for "stream"
+          - "providers": list of provider names for "providers" and "health"
+          - "stats": usage statistics for "stats"
+          - "message": error description when status is "error"
+    """
     try:
         command = data.get("command")
         params = data.get("params", {})
@@ -752,12 +1013,21 @@ async def handle_ipc_request(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def main():
-    """Main entry point"""
+    """
+    Start the program in either IPC or interactive CLI mode.
+    
+    If the `--ipc` command-line flag is present, enter IPC mode: read JSON lines from standard input, pass each parsed object to `handle_ipc_request`, and write the handler's JSON-serializable result to standard output. If an input line is not valid JSON, write {"status": "error", "message": "Invalid JSON"} to standard output. Without `--ipc`, run the interactive CLI via `run_cli`.
+    """
     if len(sys.argv) > 1 and sys.argv[1] == "--ipc":
         # IPC mode - read from stdin, write to stdout
         import asyncio
 
         async def ipc_loop():
+            """
+            Run a continuous IPC loop that reads JSON requests from stdin and writes JSON responses to stdout.
+            
+            Reads each line from standard input, parses it as JSON, passes the parsed object to the IPC request handler, and prints the handler's JSON-serializable result to standard output. If a line is not valid JSON, writes {"status": "error", "message": "Invalid JSON"} to stdout. Flushes stdout after each output.
+            """
             for line in sys.stdin:
                 try:
                     data = json.loads(line.strip())

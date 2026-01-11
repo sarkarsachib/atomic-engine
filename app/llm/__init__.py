@@ -23,6 +23,18 @@ from .exceptions import (
 
 # Lazy load providers to avoid import errors when SDKs aren't installed
 def __getattr__(name):
+    """
+    Lazily loads and returns provider classes by name to defer optional provider imports until accessed.
+    
+    Parameters:
+        name (str): The provider attribute name to resolve. Supported values: "BaseProvider", "OpenAIProvider", "AnthropicProvider", "BedrockProvider", "OllamaProvider", "AzureProvider".
+    
+    Returns:
+        type: The provider class corresponding to `name`.
+    
+    Raises:
+        AttributeError: If `name` is not one of the supported provider names.
+    """
     if name in ("BaseProvider", "OpenAIProvider", "AnthropicProvider", 
                 "BedrockProvider", "OllamaProvider", "AzureProvider"):
         from . import providers

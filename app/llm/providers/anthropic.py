@@ -59,6 +59,22 @@ class AnthropicProvider(BaseProvider):
         api_key: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Initialize the AnthropicProvider and configure the Anthropic client settings.
+        
+        Creates an AnthropicConfig using the provided parameters or fallbacks (instance api_key, ANTROPIC_API_KEY env var, config fields, or sensible defaults), verifies that the Anthropic SDK is available, and initializes internal client state and default model name.
+        
+        Parameters:
+            config (Optional[ProviderConfig]): Optional provider configuration containing api_base, timeout_seconds, and retry_count.
+            api_key (Optional[str]): Optional API key to use for Anthropic; overrides environment and config values when provided.
+            **kwargs: Optional overrides; supported keys:
+                - base_url: base URL for the Anthropic API
+                - timeout: request timeout in seconds
+                - max_retries: maximum retry attempts
+        
+        Raises:
+            ImportError: If the Anthropic SDK is not installed (ANTHROPIC_AVAILABLE is False).
+        """
         super().__init__(config, api_key, **kwargs)
 
         if not ANTHROPIC_AVAILABLE:
@@ -76,7 +92,12 @@ class AnthropicProvider(BaseProvider):
 
     @property
     def default_model(self) -> str:
-        """Default model for Anthropic"""
+        """
+        Return the provider's default Anthropic model identifier.
+        
+        Returns:
+            str: The default model name used for requests (e.g., "claude-sonnet-4-20250514").
+        """
         return self._default_model
 
     async def initialize(self) -> None:
@@ -101,14 +122,26 @@ class AnthropicProvider(BaseProvider):
             raise
 
     async def shutdown(self) -> None:
-        """Shutdown Anthropic client"""
+        """
+        Close the Anthropic client and release internal resources.
+        
+        If a client instance exists, close its connection and clear the cached client reference so the provider can be reinitialized later.
+        """
         if self._client:
             await self._client.close()
             self._client = None
             logger.info("Anthropic provider shut down")
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        """Generate non-streaming response"""
+        """
+        Produce a completed LLM response for the given request using the Anthropic API.
+        
+        Parameters:
+            request (LLMRequest): Request object containing messages, model selection, and optional generation parameters (temperature, max_tokens, stop sequences, and function definitions).
+        
+        Returns:
+            LLMResponse: Parsed response including consolidated content, model name, token usage, finish reason, provider identifier, request_id, raw API response, and an optional `function_call` entry when a tool/function was invoked.
+        """
         await self.initialize()
 
         model_config = self._get_model_config(request.model)
@@ -148,7 +181,17 @@ class AnthropicProvider(BaseProvider):
             raise self._create_error(str(e))
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
-        """Generate streaming response"""
+        """
+        Stream incremental model output as StreamChunk objects for the given LLM request.
+        
+        Yields intermediate chunks containing accumulated content and the latest text delta as the model streams, and a final chunk with is_final=True that may include a finish reason and token usage. Initializes the provider client and applies model defaults before streaming. On error, records the failure and raises a provider error.
+        
+        Parameters:
+            request (LLMRequest): The request describing messages, model, and generation options.
+        
+        Returns:
+            AsyncIterator[StreamChunk]: An asynchronous iterator producing StreamChunk objects. Intermediate chunks have `is_final=False` and contain `delta` text; the final chunk has `is_final=True` and may include `finish_reason` and `usage`.
+        """
         await self.initialize()
 
         model_config = self._get_model_config(request.model)
@@ -204,7 +247,19 @@ class AnthropicProvider(BaseProvider):
             raise self._create_error(str(e))
 
     def _prepare_messages(self, request: LLMRequest) -> List[Dict[str, Any]]:
-        """Prepare messages for Anthropic API"""
+        """
+        Convert an LLMRequest into a list of Anthropic-compatible message dictionaries.
+        
+        If the request contains a system_prompt, it is prepended as a user-role message whose single content block is the system prompt prefixed with "SYSTEM: ". Each message in request.messages is converted so that its `content` is a list of content blocks; string content is converted to a single block of the form `{"type": "text", "text": ...}`.
+        
+        Parameters:
+            request (LLMRequest): Request containing optional `system_prompt` and `messages` to convert.
+        
+        Returns:
+            List[Dict[str, Any]]: Ordered list of message dicts where each dict has:
+                - "role" (str): the message role (e.g., "user", "assistant", "system" mapped as user here).
+                - "content" (List[Dict[str, str]]): list of content blocks, each with "type" and "text".
+        """
         messages = []
 
         # Add system message first
@@ -228,7 +283,19 @@ class AnthropicProvider(BaseProvider):
         return messages
 
     def _prepare_tools(self, request: LLMRequest) -> Optional[List[Dict[str, Any]]]:
-        """Prepare tools for Anthropic API"""
+        """
+        Convert OpenAI-style function definitions in the request into Anthropic-compatible tool definitions.
+        
+        Parameters:
+            request (LLMRequest): Request object that may include OpenAI-style function definitions in `request.functions`. Each function is expected to be a dict with at least a `name`; may include `description` and `parameters`.
+        
+        Returns:
+            Optional[List[Dict[str, Any]]]: A list of tool dictionaries compatible with Anthropic's API, where each tool has:
+                - `name`: tool name (from function `name`)
+                - `description`: tool description (empty string if not provided)
+                - `input_schema`: the function `parameters` object (empty dict if not provided)
+            Returns `None` if the request contains no functions.
+        """
         if not request.functions:
             return None
 
@@ -245,7 +312,27 @@ class AnthropicProvider(BaseProvider):
         return tools
 
     def _parse_response(self, response, model: str, latency_ms: float) -> LLMResponse:
-        """Parse Anthropic response into standard format"""
+        """
+        Convert an Anthropic API response into the provider's LLMResponse structure.
+        
+        The returned LLMResponse aggregates textual content from response.content blocks, records token usage from response.usage, and surfaces the first tool invocation (if any) as `function_call`. When a content block represents a tool call, a placeholder like "[Tool call: <name>]" is appended to the aggregated content. The response's stop reason is used as the finish reason; if absent, "stop" is used. The raw_response field contains the response's serialized model dump.
+        
+        Parameters:
+            response: Anthropic response object containing `content` blocks, `usage` (with `input_tokens` and `output_tokens`), `stop_reason`, and `id`.
+            model (str): Model identifier used for the response.
+            latency_ms (float): Observed request latency in milliseconds (not included in the returned object).
+        
+        Returns:
+            LLMResponse: Parsed response with fields:
+                - content: aggregated text (trimmed)
+                - model: echoed model identifier
+                - usage: TokenUsage populated from response.usage
+                - finish_reason: response.stop_reason or "stop"
+                - provider: provider name
+                - request_id: response.id
+                - raw_response: serialized original response
+                - function_call: first detected tool invocation as a dict with `name` and `input`, or `None`
+        """
         content_blocks = response.content
         content = ""
         function_calls = []
@@ -278,7 +365,15 @@ class AnthropicProvider(BaseProvider):
         )
 
     def _parse_usage(self, usage) -> TokenUsage:
-        """Parse usage from streaming response"""
+        """
+        Extract token counts from a streaming usage object.
+        
+        Parameters:
+        	usage (object): Streaming usage object that may have `input_tokens` and `output_tokens` attributes.
+        
+        Returns:
+        	TokenUsage: Token usage with `input_tokens`, `output_tokens`, and `total_tokens` (sum of input and output). Missing attributes default to 0.
+        """
         return TokenUsage(
             input_tokens=getattr(usage, 'input_tokens', 0),
             output_tokens=getattr(usage, 'output_tokens', 0),
@@ -286,7 +381,26 @@ class AnthropicProvider(BaseProvider):
         )
 
     def _handle_api_error(self, error, model: str) -> None:
-        """Handle Anthropic API errors"""
+        """
+        Map an Anthropic SDK HTTP error to the appropriate provider exception and raise it.
+        
+        This inspects the SDK error's HTTP status, response body, headers, and message and raises:
+        - AuthenticationError for 401 responses.
+        - RateLimitError for 429 responses; if present, parses a numeric `Retry-After` header and sets `retry_after_seconds`.
+        - ContextLengthError for 400 responses whose message mentions "context_length" (case-insensitive).
+        - ProviderError for other 4xx/5xx bad requests (includes status code and response body).
+        
+        Parameters:
+            error: The exception object returned by the Anthropic SDK. Expected to expose
+                `status_code`, `response` (with `text` and `headers`), and `message`.
+            model (str): The model identifier used in the request; included when raising ContextLengthError.
+        
+        Raises:
+            AuthenticationError: When the API returns 401.
+            RateLimitError: When the API returns 429 (may include `retry_after_seconds`).
+            ContextLengthError: When a 400 error indicates the request exceeded model context length.
+            ProviderError: For other API errors, including bad requests and unexpected status codes.
+        """
         status_code = error.status_code
         response_body = error.response.text if error.response else None
 
@@ -326,13 +440,23 @@ class AnthropicProvider(BaseProvider):
             )
 
     async def count_tokens(self, text: str) -> int:
-        """Count tokens using Anthropic's tokenizer"""
+        """
+        Estimate the number of tokens in the provided text using an approximate heuristic compatible with Anthropic's tokenization.
+        
+        Returns:
+            token_count (int): Estimated token count, calculated as len(text) // 4.
+        """
         # Anthropic doesn't have a public token counter
         # Fallback to approximate count
         return len(text) // 4
 
     async def get_available_models(self) -> List[str]:
-        """Get list of available Anthropic models"""
+        """
+        List known Anthropic Claude model IDs supported by this provider.
+        
+        Returns:
+            A list of Anthropic model identifier strings supported by the provider.
+        """
         # Return known models since API doesn't list them
         return [
             "claude-opus-4-20250514",
@@ -341,7 +465,12 @@ class AnthropicProvider(BaseProvider):
         ]
 
     async def health_check(self) -> bool:
-        """Check Anthropic API health"""
+        """
+        Verify connectivity by performing a minimal request against the Anthropic API using the configured client.
+        
+        Returns:
+            `true` if the client responds successfully, `false` otherwise.
+        """
         try:
             await self._client.messages.create(
                 model=self._default_model,

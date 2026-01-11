@@ -62,6 +62,22 @@ class OpenAIProvider(BaseProvider):
         api_key: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Initialize the OpenAI provider, validate SDK availability, and build runtime configuration.
+        
+        Parameters:
+            config (Optional[ProviderConfig]): Optional provider-level configuration used as defaults.
+            api_key (Optional[str]): Explicit OpenAI API key; falls back to the OPENAI_API_KEY environment variable if not provided.
+            **kwargs: Optional overrides for configuration fields: `organization`, `base_url`, `timeout`, and `max_retries`.
+        
+        Raises:
+            ImportError: If the OpenAI SDK is not installed.
+        
+        Side effects:
+            - Constructs and stores `self.openai_config` from provided arguments, environment variables, and `config`.
+            - Initializes `self._client` to `None`.
+            - Sets `self._default_model` to `"gpt-4o"`.
+        """
         if not OPENAI_AVAILABLE:
             raise ImportError("OpenAI SDK is required. Install with: pip install openai")
         
@@ -80,11 +96,23 @@ class OpenAIProvider(BaseProvider):
 
     @property
     def default_model(self) -> str:
-        """Default model for OpenAI"""
+        """
+        The provider's default model identifier.
+        
+        Returns:
+            str: The default model id used by this provider.
+        """
         return self._default_model
 
     async def initialize(self) -> None:
-        """Initialize OpenAI client"""
+        """
+        Create and validate the internal OpenAI async client.
+        
+        If a client already exists, this is a no-op. On success, the AsyncOpenAI client is stored on self._client and the provider's credentials are verified via a health check. If client construction or the health check fails, the original exception is raised.
+         
+        Raises:
+            Exception: Propagates any error raised while creating the client or performing the health check.
+        """
         if self._client is not None:
             return
 
@@ -106,14 +134,26 @@ class OpenAIProvider(BaseProvider):
             raise
 
     async def shutdown(self) -> None:
-        """Shutdown OpenAI client"""
+        """
+        Close the internal OpenAI client and clear its reference.
+        
+        If no client is initialized, this is a no-op.
+        """
         if self._client:
             await self._client.close()
             self._client = None
             logger.info("OpenAI provider shut down")
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        """Generate non-streaming response"""
+        """
+        Generate a complete, non-streaming chat response for the given LLMRequest using the configured OpenAI client.
+        
+        Parameters:
+            request (LLMRequest): Request containing messages, model selection, and generation parameters (temperature, max_tokens, stop tokens, penalties, logit_bias, user, etc.).
+        
+        Returns:
+            LLMResponse: Parsed response including the generated content, model used, token usage, finish reason, provider identifier, request ID, and the raw API response.
+        """
         await self.initialize()
 
         # Apply default parameters
@@ -153,7 +193,19 @@ class OpenAIProvider(BaseProvider):
             self._handle_api_error(e, request.model)
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
-        """Generate streaming response"""
+        """
+        Stream tokens from the model for a single LLMRequest and yield incremental updates as StreamChunk objects.
+        
+        Parameters:
+            request (LLMRequest): The request to send to the model. Must have `stream=True` and include the desired model and generation parameters.
+        
+        Returns:
+            AsyncIterator[StreamChunk]: An async iterator that yields StreamChunk values containing cumulative `content`, the latest `delta`, `model`, `provider`, `chunk_index`, `is_final`, `finish_reason`, `usage`, and `raw_chunk`.
+        
+        Raises:
+            ValueError: If `request.stream` is False.
+            ProviderError: If the provider API returns an error during streaming (mapped to provider-specific exceptions).
+        """
         await self.initialize()
 
         if not request.stream:
@@ -210,7 +262,15 @@ class OpenAIProvider(BaseProvider):
             raise self._create_error(str(e))
 
     def _prepare_messages(self, request: LLMRequest) -> List[Dict[str, str]]:
-        """Prepare messages for OpenAI API"""
+        """
+        Constructs the sequence of chat messages for the OpenAI chat API.
+        
+        Parameters:
+            request (LLMRequest): The LLM request whose optional `system_prompt` will be inserted as a system-role message (if present) followed by the request's user messages.
+        
+        Returns:
+            List[Dict[str, str]]: A list of message objects suitable for the OpenAI API; each item contains `role` and `content`, with the system message first when provided.
+        """
         messages = []
 
         # Add system prompt if provided
@@ -223,7 +283,17 @@ class OpenAIProvider(BaseProvider):
         return messages
 
     def _parse_response(self, response, model: str, latency_ms: float) -> LLMResponse:
-        """Parse OpenAI response into standard format"""
+        """
+        Convert an OpenAI chat completion response into an LLMResponse.
+        
+        Parameters:
+            response: The raw OpenAI chat completion response object.
+            model (str): The model identifier used to generate the response.
+            latency_ms (float): Round-trip latency in milliseconds for the request.
+        
+        Returns:
+            LLMResponse: Standardized response containing content, model, token usage, finish reason, provider name, request ID, raw response data, and any function call info.
+        """
         choice = response.choices[0]
         message = choice.message
 
@@ -245,7 +315,18 @@ class OpenAIProvider(BaseProvider):
         )
 
     def _parse_stream_chunk(self, chunk) -> tuple:
-        """Parse streaming chunk and return delta, finish_reason, and usage"""
+        """
+        Extract the text delta, finish reason, and token usage from a streaming response chunk.
+        
+        Parameters:
+            chunk: A streaming chat-completion chunk object returned by the OpenAI client; expected to have `choices` (with `delta.content` and `finish_reason`) and optional `usage` attributes.
+        
+        Returns:
+            tuple: A 3-tuple (delta, finish_reason, usage) where
+                delta (str): The incremental text content from the chunk (empty string if none).
+                finish_reason (str | None): The reason the stream finished for this choice (e.g., "stop", "length") or `None` if not present.
+                usage (TokenUsage | None): Token usage for the chunk if present, otherwise `None`.
+        """
         delta = ""
         finish_reason = None
         usage = None
@@ -265,7 +346,20 @@ class OpenAIProvider(BaseProvider):
         return delta, finish_reason, usage
 
     async def _handle_api_error(self, error, model: str) -> None:
-        """Handle OpenAI API errors and raise appropriate exception"""
+        """
+        Map OpenAI API errors to provider-specific exceptions.
+        
+        Parameters:
+            error: The error object returned by the OpenAI client; its attributes (status_code, message, response) are inspected to determine the mapped exception.
+            model (str): The model identifier associated with the request that triggered the error.
+        
+        Raises:
+            AuthenticationError: When the API returns a 401 status code.
+            RateLimitError: When the API returns a 429 status code; includes `retry_after_seconds` if the `Retry-After` header is present and parseable.
+            ContextLengthError: When the API returns a 400 status code and the error message indicates the input exceeded the model's context length; includes the model and reported `x-max-input-tokens` header.
+            ProviderError: For generic 400 responses that are not context-length errors, and for other non-specialized HTTP error codes; includes status code and response body when available.
+            ModelNotFoundError: When the API returns a 404 status code; includes the requested model and the list of available models discovered via `get_available_models`.
+        """
         status_code = error.status_code
         response_body = error.response.text if error.response else None
 
@@ -313,7 +407,14 @@ class OpenAIProvider(BaseProvider):
             )
 
     async def count_tokens(self, text: str) -> int:
-        """Count tokens using OpenAI's tokenizer"""
+        """
+        Estimate the number of tokens in the provided text.
+        
+        Attempts to obtain the token count from the OpenAI chat completions API; if the API call fails, returns an approximate count computed as len(text) // 4.
+        
+        Returns:
+            int: Number of tokens — exact value returned by the API when available, otherwise an approximation.
+        """
         await self.initialize()
 
         try:
@@ -329,7 +430,12 @@ class OpenAIProvider(BaseProvider):
             return len(text) // 4
 
     async def get_available_models(self) -> List[str]:
-        """Get list of available OpenAI models"""
+        """
+        Retrieve available OpenAI model IDs filtered to supported families.
+        
+        Returns:
+            List[str]: Model ID strings that contain "gpt" or "o1". Returns an empty list if fetching models fails.
+        """
         await self.initialize()
 
         try:
@@ -340,7 +446,12 @@ class OpenAIProvider(BaseProvider):
             return []
 
     async def health_check(self) -> bool:
-        """Check OpenAI API health"""
+        """
+        Verify that the configured OpenAI API is reachable and functioning.
+        
+        Returns:
+            bool: `True` if the API responded to a models list request, `False` otherwise.
+        """
         try:
             await self._client.models.list()
             return True

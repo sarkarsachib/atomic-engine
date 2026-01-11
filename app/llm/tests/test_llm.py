@@ -33,7 +33,12 @@ from app.llm.client import LLMAgent, AgentConfig, Conversation, Message
 
 @pytest.fixture
 def mock_provider_config():
-    """Create a mock provider configuration"""
+    """
+    Create a ProviderConfig intended for tests.
+    
+    Returns:
+        provider_config (ProviderConfig): A ProviderConfig named "test", enabled with priority 1, containing a single ModelConfig named "test-model" (provider "test") with input cost 0.001 and output cost 0.002.
+    """
     return ProviderConfig(
         name="test",
         enabled=True,
@@ -46,7 +51,12 @@ def mock_provider_config():
 
 @pytest.fixture
 def mock_model_config():
-    """Create a mock model configuration"""
+    """
+    Create a mock ModelConfig for tests representing a gpt-4o-like model.
+    
+    Returns:
+        ModelConfig: A ModelConfig populated with provider "openai", name "gpt-4o", large token limits (max_tokens=4096, max_input_tokens=128000), streaming/vision/functions enabled, and example input/output costs.
+    """
     return ModelConfig(
         name="gpt-4o",
         provider="openai",
@@ -62,7 +72,12 @@ def mock_model_config():
 
 @pytest.fixture
 def sample_llm_request():
-    """Create a sample LLM request"""
+    """
+    Create a pre-populated LLMRequest representing a simple user message.
+    
+    Returns:
+        LLMRequest: A request for model "gpt-4o" containing one user message ("Hello, how are you?"), with temperature 0.7 and max_tokens 100.
+    """
     return LLMRequest(
         messages=[{"role": "user", "content": "Hello, how are you?"}],
         model="gpt-4o",
@@ -73,7 +88,12 @@ def sample_llm_request():
 
 @pytest.fixture
 def sample_llm_response():
-    """Create a sample LLM response"""
+    """
+    Create a sample LLMResponse used in tests.
+    
+    Returns:
+        LLMResponse: Response with content "I'm doing well, thank you!", model "gpt-4o", TokenUsage of 10 input and 12 output tokens, finish_reason "stop", provider "openai", and request_id "test-123".
+    """
     return LLMResponse(
         content="I'm doing well, thank you!",
         model="gpt-4o",
@@ -264,6 +284,12 @@ class TestStreaming:
         ]
 
         async def test():
+            """
+            Feed a sequence of stream chunks to an aggregator and return the aggregated result once the aggregator reports completion.
+            
+            Returns:
+                The aggregator's result when `aggregator.add_chunk` returns a truthy value for a chunk, `None` if no chunk produced a result.
+            """
             for chunk in chunks:
                 result = await aggregator.add_chunk("stream-1", chunk)
                 if result:
@@ -398,7 +424,15 @@ class TestIntegration:
 # ==================== Test Utilities ====================
 
 def run_async_test(coro):
-    """Helper to run async tests"""
+    """
+    Run an awaitable coroutine synchronously for use in tests.
+    
+    Parameters:
+    	coro (Awaitable): The coroutine or awaitable to execute.
+    
+    Returns:
+    	result: The value produced by the coroutine.
+    """
     return asyncio.run(coro)
 
 

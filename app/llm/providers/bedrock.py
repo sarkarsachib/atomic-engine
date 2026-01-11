@@ -61,6 +61,24 @@ class BedrockProvider(BaseProvider):
         api_key: Optional[str] = None,
         **kwargs,
     ):
+        """
+        Initialize the BedrockProvider with configuration, credentials, and built-in model ID mappings.
+        
+        Constructs a BedrockConfig from provided kwargs, environment variables, or the given ProviderConfig; validates that boto3 is available; and sets up internal client placeholders, a default model ID, and a mapping of short model names to full Bedrock model IDs.
+        
+        Parameters:
+            config (Optional[ProviderConfig]): Optional shared provider configuration to fall back to for region, api_base (endpoint), timeout_seconds, and retry_count.
+            api_key (Optional[str]): Optional API key (kept for compatibility; Bedrock primarily uses AWS credentials).
+            **kwargs: Provider-specific overrides. Recognized keys include:
+                - region: AWS region to use (overrides config.region).
+                - aws_access_key_id, aws_secret_access_key, aws_session_token: explicit AWS credentials (fallbacks to environment variables).
+                - endpoint_url: custom Bedrock endpoint (overrides config.api_base).
+                - timeout: request timeout in seconds (overrides config.timeout_seconds).
+                - max_retries: maximum retry attempts (overrides config.retry_count).
+        
+        Raises:
+            ImportError: If boto3 is not installed or available.
+        """
         super().__init__(config, api_key, **kwargs)
 
         if not BEDROCK_AVAILABLE:
@@ -102,17 +120,34 @@ class BedrockProvider(BaseProvider):
 
     @property
     def default_model(self) -> str:
-        """Default model for Bedrock"""
+        """
+        Get the provider's default model identifier.
+        
+        Returns:
+            default_model (str): The default Bedrock model identifier used when none is specified.
+        """
         return self._default_model
 
     def _get_model_id(self, model_name: str) -> str:
-        """Get full Bedrock model ID from short name"""
+        """
+        Resolve a short model name to its full Bedrock model identifier.
+        
+        Parameters:
+            model_name (str): Short or full model name to resolve.
+        
+        Returns:
+            model_id (str): The full Bedrock model ID if a mapping exists; otherwise returns the original `model_name`.
+        """
         if model_name in self._model_ids:
             return self._model_ids[model_name]
         return model_name
 
     async def initialize(self) -> None:
-        """Initialize Bedrock clients"""
+        """
+        Initialize the Bedrock boto3 clients and validate connectivity.
+        
+        Creates and assigns the internal Bedrock `bedrock` and `bedrock-runtime` boto3 clients and performs a health check; no action is taken if clients are already initialized.
+        """
         if self._client is not None:
             return
 
@@ -151,7 +186,15 @@ class BedrockProvider(BaseProvider):
         logger.info("Bedrock provider shut down")
 
     async def generate(self, request: LLMRequest) -> LLMResponse:
-        """Generate non-streaming response"""
+        """
+        Perform a single (non-streaming) inference call to Bedrock and return the parsed response.
+        
+        Parameters:
+            request (LLMRequest): The request containing the model selection, messages, and any model-specific parameters used to build the Bedrock payload.
+        
+        Returns:
+            LLMResponse: The provider-normalized response including generated text, token usage, finish reason, and latency metadata.
+        """
         await self.initialize()
 
         model_config = self._get_model_config(request.model)
@@ -187,7 +230,17 @@ class BedrockProvider(BaseProvider):
             raise self._create_error(str(e))
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[StreamChunk]:
-        """Generate streaming response"""
+        """
+        Stream model-generated text as incremental StreamChunk objects.
+        
+        Yields progressive chunks containing the latest delta and the accumulated content so far; a final chunk with is_final True and finish_reason "stop" is emitted when the model signals completion.
+        
+        Parameters:
+            request (LLMRequest): Request specifying messages, model, and generation parameters; the request's model determines which Bedrock model and payload format are used.
+        
+        Returns:
+            AsyncIterator[StreamChunk]: An async iterator that yields intermediate StreamChunk instances (is_final=False) for each delta and a final StreamChunk (is_final=True) when generation stops.
+        """
         await self.initialize()
 
         model_config = self._get_model_config(request.model)
@@ -249,7 +302,18 @@ class BedrockProvider(BaseProvider):
         request: LLMRequest,
         stream: bool = False,
     ) -> Dict[str, Any]:
-        """Prepare request body for Bedrock API"""
+        """
+        Builds a Bedrock-compatible request payload for the resolved model based on the given LLMRequest.
+        
+        Constructs provider-specific request bodies for Anthropic, Meta Llama, Amazon Titan, and Mistral families using fields from `request`. When `stream` is True, includes streaming flags where supported (Anthropic). Raises a ValueError if the resolved model ID is not supported.
+        
+        Parameters:
+            request (LLMRequest): The normalized LLM request containing model, messages, and generation options.
+            stream (bool): Whether the payload should enable streaming where supported.
+        
+        Returns:
+            Dict[str, Any]: A dictionary formatted for the Bedrock API for the resolved model.
+        """
         model_id = self._get_model_id(request.model)
 
         # Anthropic models
@@ -316,7 +380,17 @@ class BedrockProvider(BaseProvider):
         raise ValueError(f"Unsupported model: {model_id}")
 
     def _prepare_anthropic_messages(self, request: LLMRequest) -> List[Dict[str, Any]]:
-        """Prepare messages for Anthropic models"""
+        """
+        Build a list of message dictionaries formatted for Anthropic-compatible Bedrock requests.
+        
+        The returned list includes a system prompt (when present) inserted as a user-role message whose `content` is a list containing a single text block. Each message from `request.messages` is appended with its `role` preserved; if a message's `content` is a string it is converted to a list of text blocks of the form `{"type": "text", "text": <text>}`.
+        
+        Parameters:
+            request (LLMRequest): Request object containing `system_prompt` (optional) and `messages` (iterable of message dicts with `role` and `content`).
+        
+        Returns:
+            List[Dict[str, Any]]: Messages ready to send to Anthropic models. Each dict contains `role` and `content` where `content` is a list of text block dicts.
+        """
         messages = []
 
         # Add system message
@@ -340,7 +414,21 @@ class BedrockProvider(BaseProvider):
         return messages
 
     def _prepare_llama_prompt(self, request: LLMRequest) -> str:
-        """Prepare prompt for Llama models"""
+        """
+        Builds a prompt string formatted for Meta Llama models from the given LLMRequest.
+        
+        Encodes the optional system prompt and the sequence of messages into the tokenized form expected by Llama models:
+        - system prompt is wrapped as `<|system|>... </s>`
+        - user messages are wrapped as `<|user|>... </s>`
+        - assistant messages are wrapped as `<|assistant|>... </s>`
+        A trailing `<|assistant|>` token is appended to indicate where the model should continue.
+        
+        Parameters:
+        	request (LLMRequest): Request containing an optional `system_prompt` and an ordered list of `messages` where each message is a mapping with `role` (`"user"` or `"assistant"`) and `content` (string).
+        
+        Returns:
+        	prompt (str): The concatenated prompt string formatted for Meta Llama models.
+        """
         prompt_parts = []
 
         if request.system_prompt:
@@ -356,7 +444,15 @@ class BedrockProvider(BaseProvider):
         return "".join(prompt_parts)
 
     def _prepare_mistral_prompt(self, request: LLMRequest) -> str:
-        """Prepare prompt for Mistral models"""
+        """
+        Builds a single input prompt string formatted for Mistral-compatible models.
+        
+        Parameters:
+            request (LLMRequest): The request containing optional system_prompt and a sequence of messages with "role" and "content".
+        
+        Returns:
+            str: The assembled prompt where the system prompt and user messages are wrapped with "<s>[INST] ... [/INST]</s>" and assistant messages are appended followed by "</s>".
+        """
         prompt_parts = []
 
         if request.system_prompt:
@@ -376,7 +472,20 @@ class BedrockProvider(BaseProvider):
         model: str,
         latency_ms: float,
     ) -> LLMResponse:
-        """Parse Bedrock response into standard format"""
+        """
+        Convert a Bedrock model response into a standardized LLMResponse.
+        
+        Parameters:
+            response_body (Dict[str, Any]): The raw response payload returned by Bedrock for the invoked model.
+            model (str): The provider model name or alias used to resolve the Bedrock model ID.
+            latency_ms (float): Measured request latency in milliseconds (provided for context).
+        
+        Returns:
+            LLMResponse: A normalized response containing the aggregated text content, model, token usage, finish reason, provider name, and the original raw response.
+        
+        Raises:
+            ValueError: If the response format does not match any supported model family.
+        """
         model_id = self._get_model_id(model)
 
         # Anthropic response parsing
@@ -443,7 +552,19 @@ class BedrockProvider(BaseProvider):
         raise ValueError(f"Unknown model response format: {model_id}")
 
     def _handle_api_error(self, error, model: str) -> None:
-        """Handle Bedrock API errors"""
+        """
+        Map Bedrock API error responses to provider-specific exceptions.
+        
+        Parameters:
+            error: The caught boto3/botocore client error containing an AWS-style error response.
+            model (str): The resolved Bedrock model identifier associated with the request.
+        
+        Raises:
+            AuthenticationError: If the error code indicates access or credential issues.
+            RateLimitError: If the error code indicates throttling or rate limits were exceeded.
+            ProviderError: For validation errors (bad request) or other unspecified Bedrock API errors.
+            ModelNotFoundError: If the specified model cannot be found.
+        """
         status_code = error.response.get("Error", {}).get("Code", "")
 
         if status_code == "AccessDeniedException":
@@ -475,17 +596,34 @@ class BedrockProvider(BaseProvider):
             )
 
     async def count_tokens(self, text: str) -> int:
-        """Count tokens (approximate)"""
+        """
+        Estimate the number of tokens in the given text for Bedrock models using a simple heuristic.
+        
+        Returns:
+            int: Estimated token count (approximate). This uses a rough heuristic of len(text) // 4.
+        """
         # Bedrock doesn't expose token counting
         return len(text) // 4
 
     async def get_available_models(self) -> List[str]:
-        """Get list of available Bedrock models"""
+        """
+        Return the short names of Bedrock models known to this provider.
+        
+        Returns:
+            List[str]: List of model short-name identifiers available from the provider.
+        """
         # Return known models
         return list(self._model_ids.keys())
 
     async def health_check(self) -> bool:
-        """Check Bedrock API health"""
+        """
+        Verify that the configured Bedrock client can respond to a foundation-models listing request.
+        
+        Attempts to call the Bedrock client's list_foundation_models method and returns whether the call succeeded.
+        
+        Returns:
+            `true` if the Bedrock client responded successfully to a foundation-models listing request, `false` otherwise.
+        """
         try:
             # Try to list available models
             self._client.list_foundation_models()

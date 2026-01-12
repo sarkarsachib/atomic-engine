@@ -6,6 +6,17 @@
 namespace atomic {
 namespace utils {
 
+/**
+ * @brief Builds a Config by applying environment-variable overrides to the default configuration.
+ *
+ * Loads a default Config and overrides fields when corresponding environment variables are set.
+ * Overrides include server settings (ATOMIC_HOST, ATOMIC_HTTP_PORT, ATOMIC_WS_PORT, ATOMIC_THREADS),
+ * IPC settings (ATOMIC_IPC_SOCKET, ATOMIC_IPC_POOL_SIZE), sandbox settings (DOCKER_HOST,
+ * ATOMIC_SANDBOX_IMAGE, ATOMIC_MEMORY_LIMIT_MB), queue settings (ATOMIC_MAX_QUEUE_SIZE,
+ * ATOMIC_MAX_CONCURRENT), and general settings (ATOMIC_ARTIFACTS_PATH, ATOMIC_LOG_LEVEL).
+ *
+ * @return Config The resulting configuration populated from defaults with any environment-variable overrides applied.
+ */
 Config ConfigLoader::load_from_env() {
     Config config = load_default();
     
@@ -45,12 +56,28 @@ Config ConfigLoader::load_from_env() {
     return config;
 }
 
+/**
+ * @brief Load configuration from a file path.
+ *
+ * Attempts to load configuration values from the file at @p path. If file
+ * parsing is not possible or not implemented, the function falls back to
+ * constructing a configuration from environment variables and defaults.
+ *
+ * @param path Filesystem path to the configuration file.
+ * @return Config Configuration populated from the file when available,
+ *         otherwise populated from environment variables and defaults.
+ */
 Config ConfigLoader::load_from_file(const std::string& path) {
     LOG_INFO("Loading config from file: ", path);
     // TODO: Implement JSON config file parsing
     return load_from_env();
 }
 
+/**
+ * @brief Create a configuration populated with the library's defaults.
+ *
+ * @return Config A Config object initialized with the default settings.
+ */
 Config ConfigLoader::load_default() {
     Config config;
     LOG_DEBUG("Using default configuration");

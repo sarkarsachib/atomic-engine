@@ -3,6 +3,34 @@
 #include <string>
 #include <cstdint>
 
+/**
+ * @brief Server networking and runtime configuration.
+ *
+ * Holds server-related settings such as bind address, HTTP and WebSocket ports,
+ * thread and connection limits, request timeout, and whether CORS is enabled.
+ *
+ * @var host IP address or hostname the server binds to (default "0.0.0.0").
+ * @var http_port TCP port for HTTP traffic (default 8080).
+ * @var ws_port TCP port for WebSocket traffic (default 8081).
+ * @var thread_count Number of worker threads the server should use (default 4).
+ * @var max_connections Maximum simultaneous connections the server accepts (default 100).
+ * @var request_timeout_ms Request timeout in milliseconds (default 30000).
+ * @var enable_cors Whether Cross-Origin Resource Sharing is enabled (default true).
+ */
+
+/**
+ * @brief Inter-process communication (IPC) configuration.
+ *
+ * Contains settings for the IPC transport, connection pooling, health checks,
+ * timeouts and reconnect behavior for agent communication.
+ *
+ * @var socket_path Filesystem path to the IPC socket (default "/tmp/atomic_llm_agent.sock").
+ * @var connection_pool_size Number of pooled connections for IPC (default 4).
+ * @var health_check_interval_ms Interval in milliseconds between IPC health checks (default 5000).
+ * @var request_timeout_ms Timeout in milliseconds for IPC requests (default 60000).
+ * @var reconnect_delay_ms Delay in milliseconds before retrying a failed IPC connection (default 1000).
+ * @var max_reconnect_attempts Maximum number of reconnect attempts before giving up (default 5).
+ */
 namespace atomic {
 namespace utils {
 
@@ -53,6 +81,28 @@ struct Config {
     bool enable_metrics = true;
 };
 
+/**
+ * Load configuration values from environment variables.
+ *
+ * Environment-provided values override the built-in defaults; fields not set
+ * in the environment remain at their default values.
+ *
+ * @returns Config populated from environment variables.
+ */
+/**
+ * Load configuration from a file at the given path.
+ *
+ * The file's values override the built-in defaults; fields omitted in the
+ * file remain at their default values.
+ *
+ * @param path Filesystem path to the configuration file.
+ * @returns Config parsed from the specified file.
+ */
+/**
+ * Produce a configuration populated with the built-in default values.
+ *
+ * @returns Config with all fields set to their default values.
+ */
 class ConfigLoader {
 public:
     static Config load_from_env();

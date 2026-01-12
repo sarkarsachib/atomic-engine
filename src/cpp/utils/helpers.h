@@ -7,6 +7,73 @@
 #include <random>
 #include <algorithm>
 
+/**
+ * Split a string into tokens using a single-character delimiter.
+ * @param str Input string to split.
+ * @param delimiter Character used to separate tokens.
+ * @returns A vector containing the tokens in order; empty vector if input is empty.
+ */
+
+/**
+ * Remove leading and trailing whitespace characters (space, tab, newline, carriage return).
+ * @param str Input string to trim.
+ * @returns The trimmed string; empty string if no non-whitespace characters are present.
+ */
+
+/**
+ * Convert all characters in a string to lowercase using the C locale's tolower.
+ * @param str Input string to convert.
+ * @returns A lowercase copy of the input string.
+ */
+
+/**
+ * Check whether a string begins with a given prefix.
+ * @param str String to inspect.
+ * @param prefix Prefix to check for at the start of `str`.
+ * @returns `true` if `str` starts with `prefix`, `false` otherwise.
+ */
+
+/**
+ * Check whether a string ends with a given suffix.
+ * @param str String to inspect.
+ * @param suffix Suffix to check for at the end of `str`.
+ * @returns `true` if `str` ends with `suffix`, `false` otherwise.
+ */
+
+/**
+ * Obtain the current system time as milliseconds since the Unix epoch.
+ * @returns Current time in milliseconds since 1970-01-01T00:00:00Z.
+ */
+
+/**
+ * Obtain the current system time formatted as an ISO 8601 UTC string.
+ * @returns Current time in ISO 8601 UTC format (e.g., "2024-01-02T15:04:05Z").
+ */
+
+/**
+ * Generate a pseudo-random version-4-like UUID string in the form 8-4-4-4-12 hex digits.
+ * @returns A UUID-like hexadecimal string (lowercase, hyphen-separated).
+ */
+
+/**
+ * Check whether a file exists and is readable.
+ * @param path Filesystem path to the file.
+ * @returns `true` if the file can be opened for reading, `false` otherwise.
+ */
+
+/**
+ * Read the entire contents of a file into a string.
+ * @param path Filesystem path to the file.
+ * @returns The file's contents as a string.
+ * @throws std::runtime_error If the file cannot be opened for reading.
+ */
+
+/**
+ * Write a string to a file, replacing its contents.
+ * @param path Filesystem path to the file to write.
+ * @param content Content to write into the file.
+ * @throws std::runtime_error If the file cannot be opened for writing.
+ */
 namespace atomic {
 namespace utils {
 

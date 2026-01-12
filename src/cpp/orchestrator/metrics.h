@@ -7,6 +7,83 @@
 #include <chrono>
 #include <vector>
 
+/**
+ * Compute the average request latency in milliseconds.
+ *
+ * @returns The average latency (total latency divided by total requests) or 0.0 if no requests recorded.
+ */
+/**
+ * Compute the fraction of requests that succeeded.
+ *
+ * @returns `true` if the number of successful requests equals total requests (not applicable) -- placeholder.
+ */
+/**
+ * Compute the average duration of completed pipelines in milliseconds.
+ *
+ * @returns The average pipeline duration (total pipeline duration divided by completed pipelines) or 0.0 if no completed pipelines.
+ */
+/**
+ * Initialize system metrics with the current time as the start time.
+ */
+/**
+ * Compute the uptime of the system in milliseconds.
+ *
+ * @returns Milliseconds elapsed since the SystemMetrics instance was constructed.
+ */
+/**
+ * Convert all collected metrics into a flat map of string keys to numeric values.
+ *
+ * The map contains request, pipeline, resource metrics and uptime with the following keys:
+ * "total_requests", "successful_requests", "failed_requests", "average_latency_ms",
+ * "min_latency_ms", "max_latency_ms", "success_rate",
+ * "active_pipelines", "completed_pipelines", "failed_pipelines", "average_pipeline_duration_ms",
+ * "active_connections", "queue_size", "memory_usage_bytes", "cpu_usage_percent",
+ * and "uptime_ms".
+ *
+ * @returns A map from metric name to numeric value representing the current snapshot of metrics.
+ */
+/**
+ * Obtain the singleton MetricsCollector instance.
+ *
+ * @returns Reference to the global MetricsCollector singleton.
+ */
+/**
+ * Record a completed request's latency and outcome.
+ *
+ * @param latency_ms Latency of the request in milliseconds.
+ * @param success `true` if the request succeeded, `false` otherwise.
+ */
+/**
+ * Increment the count of active pipelines to indicate a pipeline start.
+ */
+/**
+ * Record completion of a pipeline including its duration and outcome.
+ *
+ * @param duration_ms Duration of the completed pipeline in milliseconds.
+ * @param success `true` if the pipeline completed successfully, `false` otherwise.
+ */
+/**
+ * Record or update the duration for a named pipeline stage.
+ *
+ * @param stage Name of the pipeline stage.
+ * @param duration_ms Duration of the stage in milliseconds.
+ */
+/**
+ * Update resource usage metrics.
+ *
+ * @param connections Number of active connections.
+ * @param queue_size Current processing queue size.
+ * @param memory_bytes Current memory usage in bytes.
+ * @param cpu_percent Current CPU usage as a percentage.
+ */
+/**
+ * Retrieve a snapshot of all current system metrics.
+ *
+ * @returns A copy of the current SystemMetrics.
+ */
+/**
+ * Reset all collected metrics to their initial state and set a new start time.
+ */
 namespace atomic {
 namespace orchestrator {
 

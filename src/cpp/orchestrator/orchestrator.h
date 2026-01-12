@@ -11,6 +11,87 @@
 #include <memory>
 #include <atomic>
 
+/**
+ * Encapsulates input parameters for a generation task.
+ *
+ * prompt: User-facing prompt to drive the generation.
+ * metadata: Arbitrary key/value metadata associated with the request.
+ * stream: When true, enables streaming responses (default false).
+ * priority: Priority of the request where higher values indicate higher priority (default 1).
+ */
+
+/**
+ * Encapsulates the result of a generation task.
+ *
+ * request_id: Unique identifier for the request.
+ * pipeline_id: Identifier of the pipeline that processed the request.
+ * success: `true` if the generation completed successfully, `false` otherwise.
+ * content: Generated textual output.
+ * artifacts: Map of artifact names to their locations or identifiers.
+ * error: Error message when `success` is `false`.
+ * processing_time_ms: Total processing duration in milliseconds.
+ */
+
+/**
+ * Orchestrator manages lifecycle, routing, and execution of generation pipelines.
+ *
+ * It provides synchronous and streaming generation APIs, endpoints for status/metrics,
+ * and access to pipeline status and collected metrics.
+ */
+
+/**
+ * Construct an Orchestrator with the provided configuration.
+ *
+ * @param config Configuration values used to initialize the orchestrator.
+ */
+
+/**
+ * Clean up orchestrator resources.
+ */
+
+/**
+ * Start the orchestrator and any internal services (HTTP server, workers, etc.).
+ *
+ * @returns `true` if the orchestrator started successfully, `false` otherwise.
+ */
+
+/**
+ * Stop the orchestrator and gracefully shut down internal services.
+ */
+
+/**
+ * Check whether the orchestrator is currently running.
+ *
+ * @returns `true` if running, `false` otherwise.
+ */
+
+/**
+ * Execute a generation task synchronously and return its result.
+ *
+ * @param request GenerateRequest containing prompt, metadata, and execution options.
+ * @returns GenerateResponse with identifiers, output, artifacts, success flag, and timing.
+ */
+
+/**
+ * Execute a generation task in streaming mode, invoking callbacks for chunks and errors.
+ *
+ * @param request GenerateRequest containing prompt, metadata, and execution options.
+ * @param on_chunk Callback invoked for each streamed chunk of generated content.
+ * @param on_error Callback invoked with an error message if streaming or generation fails.
+ */
+
+/**
+ * Retrieve the current status of a named pipeline.
+ *
+ * @param pipeline_id Identifier of the pipeline to query.
+ * @returns PipelineContext describing the pipeline's current status and metadata.
+ */
+
+/**
+ * Retrieve collected runtime metrics from the orchestrator.
+ *
+ * @returns Map from metric name to its numeric value.
+ */
 namespace atomic {
 namespace orchestrator {
 

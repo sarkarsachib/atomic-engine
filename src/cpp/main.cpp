@@ -7,6 +7,14 @@
 
 std::atomic<bool> shutdown_requested{false};
 
+/**
+ * @brief Handles termination signals by requesting a graceful shutdown.
+ *
+ * When invoked with SIGINT or SIGTERM, logs an informational message and sets
+ * the global shutdown_requested flag to true to initiate graceful shutdown.
+ *
+ * @param signal The received POSIX signal number (e.g., SIGINT, SIGTERM).
+ */
 void signal_handler(int signal) {
     if (signal == SIGINT || signal == SIGTERM) {
         LOG_INFO("Shutdown signal received");
@@ -14,6 +22,13 @@ void signal_handler(int signal) {
     }
 }
 
+/**
+ * @brief Initializes and runs the Atomic Orchestrator, setting up configuration, logging, signal handlers, and graceful shutdown.
+ *
+ * Loads configuration from the environment, configures logging level, constructs and starts the orchestrator, logs runtime endpoints and status, then waits for SIGINT/SIGTERM to stop the orchestrator and exit.
+ *
+ * @return int `0` on successful shutdown, `1` if the orchestrator fails to start or an unhandled exception occurs.
+ */
 int main(int argc, char* argv[]) {
     using namespace atomic;
     

@@ -8,6 +8,126 @@
 #include <atomic>
 #include "../utils/helpers.h"
 
+/**
+ * Priority levels for queued requests.
+ *
+ * LOW has the lowest precedence, NORMAL is the default, and HIGH has the highest precedence.
+ */
+
+/**
+ * Represents a request placed into the priority queue.
+ *
+ * Holds an identifier, payload, priority, enqueue timestamp (ms), and a retry counter.
+ */
+
+/**
+ * Comparison operator used by the priority queue to order requests.
+ *
+ * Higher `Priority` values are ordered before lower ones. For equal priorities,
+ * earlier `enqueue_time_ms` is ordered before later ones.
+ *
+ * @param other The request to compare against.
+ * @returns `true` if this request should be considered lower priority than `other`, `false` otherwise.
+ */
+
+/**
+ * Thread-safe, priority-based queue for requests with an optional concurrency limit.
+ *
+ * The queue enforces a maximum capacity and supports timed dequeueing with shutdown semantics.
+ */
+
+/**
+ * Create a RequestQueue.
+ *
+ * @param max_size Maximum number of requests the queue will accept before rejecting new enqueues.
+ * @param max_concurrent Maximum concurrent requests allowed (informational; not enforced by the queue itself).
+ */
+
+/**
+ * Enqueue a new request into the queue.
+ *
+ * @param data The request payload to enqueue.
+ * @param priority The priority level for the request; defaults to NORMAL.
+ * @returns `true` if the request was accepted, `false` if the queue is full.
+ */
+
+/**
+ * Attempt to dequeue the highest-priority request within a timeout.
+ *
+ * Waits up to `timeout_ms` milliseconds for an item to become available or for the queue to be stopped.
+ *
+ * @param request Output parameter that will receive the dequeued request on success.
+ * @param timeout_ms Maximum time in milliseconds to wait for a request (default 1000).
+ * @returns `true` if a request was dequeued into `request`, `false` on timeout or if the queue is stopped/empty.
+ */
+
+/**
+ * Return the current number of requests in the queue.
+ *
+ * @returns The number of queued requests.
+ */
+
+/**
+ * Check whether the queue is empty.
+ *
+ * @returns `true` if the queue contains no requests, `false` otherwise.
+ */
+
+/**
+ * Remove all requests from the queue.
+ */
+
+/**
+ * Mark the queue as running, allowing waiting dequeue operations to proceed.
+ */
+
+/**
+ * Stop the queue and wake all waiting threads.
+ */
+
+/**
+ * Query whether the queue is currently running.
+ *
+ * @returns `true` if the queue has been started and not yet stopped, `false` otherwise.
+ */
+
+/**
+ * Get the configured concurrent processing limit.
+ *
+ * @returns The maximum concurrent request count configured for this queue.
+ */
+
+/**
+ * Processor that spawns worker threads to consume requests from a RequestQueue using a handler.
+ *
+ * Workers repeatedly dequeue requests and invoke the provided handler until stopped.
+ */
+
+/**
+ * Construct a RequestProcessor.
+ *
+ * @param queue Reference to the RequestQueue to consume from.
+ * @param handler Function called for each dequeued request.
+ * @param worker_count Number of worker threads to spawn when `start()` is called (default 4).
+ */
+
+/**
+ * Destructor that stops processing and joins worker threads.
+ */
+
+/**
+ * Start processing by marking running state, starting the queue, and spawning worker threads.
+ */
+
+/**
+ * Stop processing, signal the queue to stop, join all worker threads, and clear them.
+ */
+
+/**
+ * Query the number of workers that are actively processing requests.
+ *
+ * @returns The current count of active workers.
+ */
 namespace atomic {
 namespace queue {
 

@@ -11,7 +11,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Check for dependencies
+# check_dependency checks whether a command exists in PATH, prints a colored success or error message, suggests an installation hint when missing, and returns 0 on success or 1 on failure.
 check_dependency() {
     if ! command -v $1 &> /dev/null; then
         echo -e "${RED}✗ $1 not found${NC}"

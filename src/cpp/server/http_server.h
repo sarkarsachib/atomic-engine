@@ -25,10 +25,22 @@ public:
     explicit HttpServer(const utils::ServerConfig& config);
     ~HttpServer();
     
+    /**
+     * Set the router used to dispatch incoming HTTP requests.
+     *
+     * @param router Shared pointer to a Router that will handle request routing; passing `nullptr` clears the current router.
+     */
     void set_router(std::shared_ptr<Router> router) {
         router_ = router;
     }
     
+    /**
+     * Sets the function invoked to handle WebSocket messages for accepted connections.
+     *
+     * @param handler Function that will be called for each incoming WebSocket message. The handler receives
+     *                the received message as a `const std::string&` and a callback `std::function<void(std::string)>`
+     *                to send a response or outbound message.
+     */
     void set_websocket_handler(WebSocketHandler handler) {
         ws_handler_ = handler;
     }

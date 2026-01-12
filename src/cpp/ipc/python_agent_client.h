@@ -11,6 +11,106 @@
 #include <mutex>
 #include <condition_variable>
 
+/**
+ * Construct a PythonAgentConnection bound to the given io_context and UNIX domain socket path.
+ * @param io_context Boost.Asio io_context used for asynchronous I/O.
+ * @param socket_path Filesystem path to the local stream (UNIX domain) socket.
+ */
+/**
+ * Destroy the connection object and release resources.
+ */
+
+/**
+ * Establish a connection to the Python agent over the configured socket.
+ * @param timeout_ms Maximum time to wait for the connection, in milliseconds.
+ * @returns `true` if the connection was established, `false` otherwise.
+ */
+
+/**
+ * Check whether the connection to the Python agent is currently established.
+ * @returns `true` if connected, `false` otherwise.
+ */
+
+/**
+ * Close the active connection and release associated resources.
+ */
+
+/**
+ * Send a single request and wait for its response.
+ * @param request Request payload to send to the Python agent.
+ * @param timeout_ms Maximum time to wait for a response, in milliseconds.
+ * @returns The LLMResponse produced by the Python agent for the given request.
+ */
+
+/**
+ * Send a streaming request to the Python agent and receive streamed chunks via callbacks.
+ * @param request Request payload to send to the Python agent.
+ * @param on_chunk Callback invoked for each streamed chunk received.
+ * @param on_error Callback invoked with an error message if the streaming request fails.
+ * @param timeout_ms Maximum time to wait for the overall streaming operation, in milliseconds.
+ */
+
+/**
+ * Perform a lightweight health check of the connection to the Python agent.
+ * @returns `true` if the agent responded to the health check, `false` otherwise.
+ */
+
+/**
+ * Initiate or continue asynchronous read operations from the socket.
+ */
+
+/**
+ * Process a raw incoming message payload and dispatch it to the appropriate pending request handler.
+ */
+
+/**
+ * Construct a PythonAgentClient configured with the given IPC settings.
+ * @param config IPC configuration used to create and manage the connection pool.
+ */
+/**
+ * Destroy the client and release resources, ensuring background threads are stopped.
+ */
+
+/**
+ * Start the client, initialize the connection pool and worker threads.
+ * @returns `true` if the client started successfully, `false` otherwise.
+ */
+
+/**
+ * Stop the client, signal shutdown, and join background threads.
+ */
+
+/**
+ * Send a single request using a pooled connection and return its response.
+ * @param request Request payload to send to the Python agent.
+ * @returns The LLMResponse produced by the Python agent for the given request.
+ */
+
+/**
+ * Send a streaming request using a pooled connection and receive streamed chunks via callbacks.
+ * @param request Request payload to send to the Python agent.
+ * @param on_chunk Callback invoked for each streamed chunk received.
+ * @param on_error Callback invoked with an error message if the streaming request fails.
+ */
+
+/**
+ * Perform an overall health check across the client's connection pool.
+ * @returns `true` if the client and its connections are healthy, `false` otherwise.
+ */
+
+/**
+ * Acquire a connection from the pool, blocking until one becomes available.
+ * @returns A shared pointer to an available PythonAgentConnection.
+ */
+
+/**
+ * Return a previously acquired connection back to the pool for reuse.
+ * @param conn Connection to return to the pool.
+ */
+
+/**
+ * Background loop that periodically performs health checks and manages pool health.
+ */
 namespace atomic {
 namespace ipc {
 

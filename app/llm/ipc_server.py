@@ -48,13 +48,23 @@ class LLMAgentIPCServer:
     """Unix socket server for C++ orchestrator communication"""
     
     def __init__(self, socket_path: str = "/tmp/atomic_llm_agent.sock"):
+        """
+        Initialize the IPC server and default internal state.
+        
+        Parameters:
+            socket_path (str): Filesystem path for the Unix domain socket the server will bind to. Defaults to "/tmp/atomic_llm_agent.sock".
+        """
         self.socket_path = socket_path
         self.config: Optional[LLMConfig] = None
         self.client: Optional[LLMClient] = None
         self.active_connections = 0
         
     async def initialize(self):
-        """Initialize LLM client"""
+        """
+        Load the LLM configuration and instantiate the LLM client for this server.
+        
+        Sets self.config to the loaded configuration and self.client to a newly created LLMClient. If initialization fails, the original exception is logged and re-raised.
+        """
         try:
             logger.info("Loading LLM configuration...")
             self.config = load_config()
@@ -69,7 +79,15 @@ class LLMAgentIPCServer:
             raise
     
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """Handle a client connection"""
+        """
+        Serve a single client connection: read line-delimited JSON messages, dispatch them to process_message, and send back non-streaming responses.
+        
+        Reads messages from `reader` in a loop until EOF, parsing each line as JSON and calling `process_message(message, writer)`. If a non-streaming response is returned, it is sent back as a line-delimited JSON. On JSON parse errors an error response is sent. Tracks and logs active connection count and ensures the connection is closed and cleaned up on exit.
+        
+        Parameters:
+            reader (asyncio.StreamReader): Asynchronous stream to read incoming data.
+            writer (asyncio.StreamWriter): Asynchronous stream to write responses and stream chunks.
+        """
         self.active_connections += 1
         addr = writer.get_extra_info('peername')
         logger.info(f"New connection (total: {self.active_connections})")
@@ -114,7 +132,22 @@ class LLMAgentIPCServer:
         message: Dict[str, Any],
         writer: asyncio.StreamWriter
     ) -> Optional[Dict[str, Any]]:
-        """Process incoming message"""
+        """
+        Handle an incoming IPC message by routing it to the appropriate handler and producing an IPC response or streaming results.
+        
+        Parses the incoming `message` dict (expected keys: `"type"`, `"id"`, and optional `"payload"`). Supports `HEALTH_CHECK` (returns a health response), `REQUEST` (dispatches either a streaming request that writes chunks to `writer` or a non-streaming request that returns a response dict), and returns an error response for unknown types or on exceptions.
+        
+        Parameters:
+            message (Dict[str, Any]): Incoming message with keys:
+                - "type": message type constant
+                - "id": message identifier
+                - "payload" (optional): request payload containing fields such as "request_id", "request_type", "prompt", "stream", and "metadata".
+            writer (asyncio.StreamWriter): Connection writer used to send streaming chunks back to the client for streaming requests.
+        
+        Returns:
+            Dict[str, Any]: An IPC response message for health checks, non-streaming request results, or error responses.
+            None: When the request is handled as a streaming request and responses are written directly to `writer`.
+        """
         msg_type = message.get("type")
         msg_id = message.get("id")
         payload = message.get("payload", {})
@@ -171,7 +204,18 @@ class LLMAgentIPCServer:
         metadata: Dict[str, Any],
         writer: asyncio.StreamWriter
     ):
-        """Handle streaming LLM request"""
+        """
+        Stream LLM-generated chunks for a request and send them as line-delimited STREAM_CHUNK messages to the connected client.
+        
+        Sends one STREAM_CHUNK message per received chunk containing `request_id`, the chunk `delta`, `accumulated_content`, `chunk_index`, `is_final`, and `finish_reason`. If an exception occurs, sends an ERROR message with the `request_id` and error string.
+        
+        Parameters:
+            msg_id (str): The IPC message identifier to correlate responses with the incoming message.
+            request_id (str): The LLM request identifier used inside payloads to correlate chunks with the original request.
+            prompt (str): The user prompt to send to the LLM.
+            metadata (Dict[str, Any]): Additional metadata to include with the LLM request.
+            writer (asyncio.StreamWriter): Stream writer used to send line-delimited JSON messages to the client.
+        """
         try:
             # Create LLM request
             llm_request = LLMRequest(
@@ -233,7 +277,43 @@ class LLMAgentIPCServer:
         prompt: str,
         metadata: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Handle non-streaming LLM request"""
+        """
+        Send the prompt to the configured LLM in non-streaming mode and return a complete IPC response message or an error message.
+        
+        On success, the returned dictionary is a MESSAGE_TYPE.RESPONSE envelope containing a payload with the final generated content, model/provider identifiers, token usage counts, and finalization flags. On failure, the returned dictionary is a MESSAGE_TYPE.ERROR envelope whose payload contains the request_id and an error string.
+        
+        Parameters:
+            metadata (Dict[str, Any]): Optional provider-specific metadata or generation parameters to attach to the LLM request.
+        
+        Returns:
+            Dict[str, Any]: A line-delimited IPC message dict with one of the following shapes:
+                - Success (type == MessageType.RESPONSE):
+                    {
+                        "id": msg_id,
+                        "type": MessageType.RESPONSE,
+                        "timestamp": <ms since epoch>,
+                        "payload": {
+                            "request_id": request_id,
+                            "content": <generated text>,
+                            "model": <model identifier>,
+                            "provider": <provider identifier>,
+                            "input_tokens": <int>,
+                            "output_tokens": <int>,
+                            "is_final": True,
+                            "error": ""
+                        }
+                    }
+                - Error (type == MessageType.ERROR):
+                    {
+                        "id": msg_id,
+                        "type": MessageType.ERROR,
+                        "timestamp": <ms since epoch>,
+                        "payload": {
+                            "request_id": request_id,
+                            "error": <error message string>
+                        }
+                    }
+        """
         try:
             # Create LLM request
             llm_request = LLMRequest(
@@ -276,7 +356,16 @@ class LLMAgentIPCServer:
             }
     
     def create_health_response(self, msg_id: str) -> Dict[str, Any]:
-        """Create health check response"""
+        """
+        Builds a HEALTH_RESPONSE IPC message summarizing server health.
+        
+        Returns:
+            Dict[str, Any]: A HEALTH_RESPONSE message with keys:
+                - `id`: the provided message id,
+                - `type`: MessageType.HEALTH_RESPONSE,
+                - `timestamp`: epoch milliseconds,
+                - `payload`: dict containing `status` ("healthy"), `active_connections` (current count), and `provider` (configured provider or "unknown").
+        """
         return {
             "id": msg_id,
             "type": MessageType.HEALTH_RESPONSE,
@@ -289,7 +378,20 @@ class LLMAgentIPCServer:
         }
     
     def create_error_response(self, msg_id: str, error: str) -> Dict[str, Any]:
-        """Create error response"""
+        """
+        Builds a structured ERROR IPC message for the given incoming message ID and error text.
+        
+        Parameters:
+            msg_id (str): The original message identifier to include in the error response.
+            error (str): Human-readable error message describing the failure.
+        
+        Returns:
+            Dict[str, Any]: IPC message dict with keys:
+                - "id": original message id,
+                - "type": MessageType.ERROR,
+                - "timestamp": epoch milliseconds,
+                - "payload": {"error": error}
+        """
         return {
             "id": msg_id,
             "type": MessageType.ERROR,
@@ -300,7 +402,11 @@ class LLMAgentIPCServer:
         }
     
     async def start(self):
-        """Start the Unix socket server"""
+        """
+        Start and run the Unix-domain socket IPC server that accepts LLM requests.
+        
+        Removes any existing socket file at the configured path, initializes the LLM client, binds an asyncio Unix-domain server to the socket path, logs startup details (socket path, provider, model count) and runs the server until shutdown.
+        """
         # Remove old socket if exists
         socket_path = Path(self.socket_path)
         socket_path.unlink(missing_ok=True)
@@ -331,7 +437,11 @@ class LLMAgentIPCServer:
 
 
 async def main():
-    """Main entry point"""
+    """
+    Start the LLMAgent IPC server using an optional Unix socket path from command-line arguments.
+    
+    Parses sys.argv[1] as the socket path (defaults to /tmp/atomic_llm_agent.sock), creates and runs an LLMAgentIPCServer, removes the socket file on graceful shutdown or on error, and exits with status 1 for unhandled exceptions.
+    """
     import sys
     
     socket_path = "/tmp/atomic_llm_agent.sock"

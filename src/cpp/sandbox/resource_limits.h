@@ -3,6 +3,15 @@
 #include <cstdint>
 #include <string>
 
+/**
+ * Construct a Docker run argument string representing the resource limits.
+ *
+ * Produces a single string suitable for appending to a `docker run` command that encodes this object's
+ * memory, CPU, process, and open-files limits.
+ *
+ * @returns A string containing Docker `--memory`, `--cpus`, `--pids-limit`, and `--ulimit nofile` arguments
+ *          derived from the corresponding members of this struct.
+ */
 namespace atomic {
 namespace sandbox {
 

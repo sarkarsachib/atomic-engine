@@ -6,7 +6,28 @@
 #include <memory>
 #include <boost/json.hpp>
 
-namespace atomic {
+/**
+     * Convert the Message into a JSON string suitable for IPC transmission.
+     * @returns A JSON string containing the message fields: `id`, `type` (as integer), `timestamp`, and `payload`.
+     */
+    
+    /**
+     * Parse a JSON string into a Message.
+     * @param json_str JSON string containing keys `id`, `type`, `timestamp`, and `payload`.
+     * @returns A Message populated from the parsed JSON.
+     */
+    
+    /**
+     * Build a Boost.JSON object representing this LLMRequest.
+     * @returns A `boost::json::object` with keys: `request_id`, `request_type` (as integer), `prompt`, `metadata` (object), `stream`, `max_tokens`, and `temperature`.
+     */
+    
+    /**
+     * Construct an LLMRequest from a Boost.JSON object.
+     * @param obj JSON object expected to contain `request_id`, `request_type`, and `prompt`. Optional keys that will be applied if present: `metadata`, `stream`, `max_tokens`, `temperature`.
+     * @returns An LLMRequest populated from `obj`.
+     */
+    namespace atomic {
 namespace ipc {
 
 enum class MessageType {
@@ -130,6 +151,16 @@ struct LLMResponse {
         return obj;
     }
     
+    /**
+     * Constructs an LLMResponse from a Boost.JSON object.
+     *
+     * @param obj JSON object expected to contain the keys "request_id" and "content".
+     *            May optionally include "model", "provider", "input_tokens", "output_tokens",
+     *            "latency_ms", "is_final", and "error"; those fields will be copied into
+     *            the corresponding LLMResponse members if present.
+     * @returns An LLMResponse populated from the provided JSON object. Required fields
+     *          "request_id" and "content" are set; optional fields are set when present. 
+     */
     static LLMResponse from_json(const boost::json::object& obj) {
         LLMResponse resp;
         resp.request_id = obj.at("request_id").as_string().c_str();
@@ -168,6 +199,15 @@ struct StreamChunk {
         return obj;
     }
     
+    /**
+     * Parse a JSON object into a StreamChunk structure.
+     *
+     * Populates request_id, delta, accumulated_content, chunk_index, and is_final from the JSON object.
+     * If the "finish_reason" key is present, sets finish_reason as well.
+     *
+     * @param obj JSON object representing a stream chunk.
+     * @returns StreamChunk populated from obj.
+     */
     static StreamChunk from_json(const boost::json::object& obj) {
         StreamChunk chunk;
         chunk.request_id = obj.at("request_id").as_string().c_str();

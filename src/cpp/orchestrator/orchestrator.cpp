@@ -6,6 +6,15 @@
 namespace atomic {
 namespace orchestrator {
 
+/**
+ * @brief Constructs an Orchestrator and initializes its internal subsystems.
+ *
+ * Initializes internal components (HTTP server, router, LLM client, sandbox controller,
+ * pipeline, and request queue) from the provided configuration and registers HTTP routes,
+ * pipeline stage handlers, and the WebSocket handler.
+ *
+ * @param config Configuration used to initialize servers, IPC, sandbox, queue, and other subsystems.
+ */
 Orchestrator::Orchestrator(const utils::Config& config)
     : config_(config) {
     
@@ -26,10 +35,27 @@ Orchestrator::Orchestrator(const utils::Config& config)
     setup_websocket_handler();
 }
 
+/**
+ * @brief Stops the orchestrator and cleans up owned resources.
+ *
+ * Ensures processing is halted, network servers and clients are shut down,
+ * and internal resources are released before the object is destroyed.
+ */
 Orchestrator::~Orchestrator() {
     stop();
 }
 
+/**
+ * @brief Initializes and starts orchestrator subsystems and marks the orchestrator as running.
+ *
+ * Starts the LLM client and HTTP server, configures the router on the HTTP server, checks Docker
+ * availability (logging a warning if unavailable), and creates and starts the request processor
+ * that consumes queued GenerateRequest items. If the orchestrator is already running, the call is
+ * a no-op.
+ *
+ * @return `true` if all components were started and the orchestrator was marked running,
+ *         `false` if the orchestrator was already running or if any startup step failed.
+ */
 bool Orchestrator::start() {
     if (running_) {
         LOG_WARNING("Orchestrator already running");
@@ -78,6 +104,13 @@ bool Orchestrator::start() {
     return true;
 }
 
+/**
+ * @brief Stops the orchestrator and shuts down its managed components.
+ *
+ * If the orchestrator is running, sets internal running state to false and
+ * stops the request processor, HTTP server, and LLM client. If the
+ * orchestrator is not running, this call has no effect.
+ */
 void Orchestrator::stop() {
     if (!running_) return;
     
@@ -100,6 +133,23 @@ void Orchestrator::stop() {
     LOG_INFO("Atomic Orchestrator stopped");
 }
 
+/**
+ * @brief Execute the pipeline for a generation request and produce a consolidated response.
+ *
+ * Runs the configured pipeline using the request's prompt and metadata, records pipeline metrics,
+ * and returns a GenerateResponse containing identifiers, success status, content (from the GENERATING stage),
+ * packaged artifacts (from the PACKAGING stage), any error message, and total processing time in milliseconds.
+ *
+ * @param request GenerateRequest containing the prompt and optional metadata for the pipeline.
+ * @return GenerateResponse Struct with:
+ *   - `request_id`: newly generated UUID for this request,
+ *   - `pipeline_id`: pipeline execution identifier,
+ *   - `success`: `true` if the pipeline completed without failure, `false` otherwise,
+ *   - `content`: text produced by the GENERATING stage (if available),
+ *   - `artifacts`: packaged artifacts from the PACKAGING stage (if available),
+ *   - `error`: error message when a failure occurred,
+ *   - `processing_time_ms`: total time spent processing this request in milliseconds.
+ */
 GenerateResponse Orchestrator::generate(const GenerateRequest& request) {
     GenerateResponse response;
     response.request_id = utils::generate_uuid();
@@ -145,6 +195,20 @@ GenerateResponse Orchestrator::generate(const GenerateRequest& request) {
     return response;
 }
 
+/**
+ * @brief Streams code-generation output from the LLM and forwards framed JSON chunks and errors to the caller.
+ *
+ * Sends a streaming generate request to the LLM using the provided prompt and metadata, then invokes
+ * the supplied handlers for each streamed chunk and for any errors that occur.
+ *
+ * @param request Generate request containing the prompt and optional metadata.
+ * @param on_chunk Callback invoked for each streamed chunk. The callback receives a serialized JSON object with the keys:
+ *                 - `type`: string, always `"chunk"`.
+ *                 - `delta`: string, the newly received text fragment.
+ *                 - `content`: string, the accumulated content so far.
+ *                 - `is_final`: boolean, true for the last chunk.
+ * @param on_error Callback invoked with an error message if streaming cannot be started or an exception occurs.
+ */
 void Orchestrator::generate_streaming(
     const GenerateRequest& request,
     std::function<void(const std::string&)> on_chunk,
@@ -179,15 +243,35 @@ void Orchestrator::generate_streaming(
     }
 }
 
+/**
+ * @brief Retrieve the pipeline context for a given pipeline ID.
+ *
+ * @param pipeline_id Identifier of the pipeline to retrieve.
+ * @return PipelineContext The PipelineContext associated with the provided `pipeline_id`.
+ */
 PipelineContext Orchestrator::get_pipeline_status(const std::string& pipeline_id) {
     return pipeline_->get_context(pipeline_id);
 }
 
+/**
+ * @brief Retrieve the current aggregated runtime metrics snapshot.
+ *
+ * @return std::map<std::string, double> A mapping from metric names to their numeric values representing the latest metrics collected by MetricsCollector.
+ */
 std::map<std::string, double> Orchestrator::get_metrics() {
     auto metrics = MetricsCollector::instance().get_metrics();
     return metrics.to_map();
 }
 
+/**
+ * @brief Register HTTP endpoints used by the orchestrator.
+ *
+ * Configures the router with the API routes consumed by clients:
+ * - POST /api/generate -> generate request handling
+ * - GET  /api/status   -> service and pipeline status
+ * - GET  /api/metrics  -> runtime metrics
+ * - GET  /health       -> health checks for LLM and sandbox
+ */
 void Orchestrator::setup_routes() {
     router_->add_route("POST", "/api/generate", [this](const server::HttpRequest& req) {
         return handle_generate(req);
@@ -206,6 +290,13 @@ void Orchestrator::setup_routes() {
     });
 }
 
+/**
+ * @brief Registers the pipeline stages and their corresponding handlers.
+ *
+ * Associates each PipelineStage (PARSING, GENERATING, PACKAGING, EXPORTING)
+ * with the orchestrator's stage handlers so the pipeline executes the correct
+ * processing function for each stage.
+ */
 void Orchestrator::setup_pipeline_handlers() {
     pipeline_->add_stage(PipelineStage::PARSING, [this](PipelineContext& ctx) {
         return parse_stage(ctx);
@@ -224,6 +315,13 @@ void Orchestrator::setup_pipeline_handlers() {
     });
 }
 
+/**
+ * @brief Registers a WebSocket message handler on the HTTP server.
+ *
+ * Configures the HTTP server to forward incoming WebSocket messages to
+ * Orchestrator::handle_websocket_message, using the provided send_response
+ * callback to deliver replies back to the client.
+ */
 void Orchestrator::setup_websocket_handler() {
     http_server_->set_websocket_handler([this](
         const std::string& message,
@@ -233,6 +331,30 @@ void Orchestrator::setup_websocket_handler() {
     });
 }
 
+/**
+ * @brief Handle HTTP requests to generate code/content from a prompt.
+ *
+ * Expects the request body to be a JSON object with:
+ * - "prompt" (string) — required.
+ * - "metadata" (object) — optional key/value pairs added to the generation request.
+ * - "stream" (bool) — optional; if true the request is rejected (streaming is supported via WebSocket).
+ *
+ * Processes the parsed input by constructing a GenerateRequest, invoking generate(...), and
+ * returns a JSON response with the generation outcome.
+ *
+ * @param request The incoming HTTP request whose body must be the JSON described above.
+ * @return server::HttpResponse A JSON response containing:
+ * - "success" (bool)
+ * - "request_id" (string)
+ * - "pipeline_id" (string)
+ * - "content" (string)
+ * - "processing_time_ms" (number)
+ * - optional "error" (string) when an error occurred
+ * - optional "artifacts" (object) when artifacts were produced
+ *
+ * On malformed requests or internal exceptions the response status and error message are set
+ * accordingly (400 for streaming-over-HTTP, 500 for internal errors).
+ */
 server::HttpResponse Orchestrator::handle_generate(const server::HttpRequest& request) {
     server::HttpResponse response;
     
@@ -284,6 +406,17 @@ server::HttpResponse Orchestrator::handle_generate(const server::HttpRequest& re
     return response;
 }
 
+/**
+ * @brief Build the orchestrator status response.
+ *
+ * Constructs an HTTP response whose JSON body contains:
+ * - "running": whether the orchestrator is currently running
+ * - "active_pipelines": count of active pipelines
+ * - "queue_size": current size of the request queue
+ *
+ * @param request Incoming HTTP request (unused).
+ * @return server::HttpResponse HTTP response with the status JSON; on exception the response is a 500 error with the exception message.
+ */
 server::HttpResponse Orchestrator::handle_status(const server::HttpRequest& request) {
     server::HttpResponse response;
     
@@ -304,6 +437,16 @@ server::HttpResponse Orchestrator::handle_status(const server::HttpRequest& requ
     return response;
 }
 
+/**
+ * @brief Handle the /api/metrics endpoint and produce a JSON object of collected metrics.
+ *
+ * Processes the incoming HTTP request and returns a response whose body is a JSON object
+ * mapping metric names to numeric values as reported by the orchestrator's metrics collector.
+ *
+ * @param request The incoming HTTP request for the metrics endpoint (not inspected by this handler).
+ * @return server::HttpResponse A response containing a JSON object of metrics on success,
+ *         or an HTTP 500 error response with the exception message on failure.
+ */
 server::HttpResponse Orchestrator::handle_metrics(const server::HttpRequest& request) {
     server::HttpResponse response;
     
@@ -324,6 +467,20 @@ server::HttpResponse Orchestrator::handle_metrics(const server::HttpRequest& req
     return response;
 }
 
+/**
+ * Perform health checks for core services and return a JSON HTTP response.
+ *
+ * Checks the LLM client and sandbox (Docker) availability and returns an HTTP
+ * response whose JSON body contains the overall status and component states.
+ *
+ * @param request Incoming HTTP request (request body and parameters are ignored).
+ * @return server::HttpResponse JSON body fields:
+ *         - `status`: `"ok"`.
+ *         - `llm_agent`: `"healthy"` if the LLM client reports healthy, `"unhealthy"` otherwise.
+ *         - `docker`: `"available"` if Docker/sandbox is available, `"unavailable"` otherwise.
+ *         - `uptime_ms`: uptime in milliseconds from the MetricsCollector.
+ *         On error, the response is an HTTP 500 with the exception message as the error body.
+ */
 server::HttpResponse Orchestrator::handle_health(const server::HttpRequest& request) {
     server::HttpResponse response;
     
@@ -346,6 +503,24 @@ server::HttpResponse Orchestrator::handle_health(const server::HttpRequest& requ
     return response;
 }
 
+/**
+ * @brief Handle an incoming WebSocket message that requests a streaming generation.
+ *
+ * Parses the incoming JSON message, constructs a GenerateRequest with `stream` set to true,
+ * and invokes generate_streaming to forward chunked results back over the WebSocket.
+ *
+ * Expected input JSON fields:
+ * - "prompt" (string): the prompt to generate from.
+ * - "metadata" (object, optional): key/value pairs to attach to the request.
+ *
+ * The function sends back JSON messages via the provided callback:
+ * - Chunk messages forwarded from the LLM as-is by generate_streaming.
+ * - Error messages of the form `{ "type": "error", "error": "<message>" }` for parsing,
+ *   generation, or streaming errors.
+ *
+ * @param message Raw JSON text received from the WebSocket.
+ * @param send_response Callback used to send a JSON-formatted text message back to the client.
+ */
 void Orchestrator::handle_websocket_message(
     const std::string& message,
     std::function<void(const std::string&)> send_response
@@ -383,6 +558,18 @@ void Orchestrator::handle_websocket_message(
     }
 }
 
+/**
+ * @brief Perform the pipeline's parsing stage by requesting an idea parse from the LLM.
+ *
+ * Sends a parse request using the pipeline's original prompt and returns a PipelineResult
+ * describing the outcome.
+ *
+ * @param ctx Pipeline context whose `original_prompt` is used to construct the parse request and whose
+ *            `pipeline_id` is used for logging.
+ * @return PipelineResult Result for the parsing stage with `stage` set to "parsing",
+ *         `success` set to `true` if the LLM returned no error, `content` populated with the
+ *         LLM response content, and `error` populated on failure.
+ */
 PipelineResult Orchestrator::parse_stage(PipelineContext& ctx) {
     PipelineResult result;
     result.stage = "parsing";
@@ -411,6 +598,14 @@ PipelineResult Orchestrator::parse_stage(PipelineContext& ctx) {
     return result;
 }
 
+/**
+ * @brief Executes the generating stage by requesting code generation for the pipeline's original prompt.
+ *
+ * Sends a generation request using the pipeline's original prompt and returns the outcome of that stage.
+ *
+ * @param ctx Pipeline context containing the original prompt and pipeline identifiers; the result corresponds to this context.
+ * @return PipelineResult Result for the "generating" stage with `success` indicating success, `content` containing generated output (if any), and `error` populated on failure.
+ */
 PipelineResult Orchestrator::generate_stage(PipelineContext& ctx) {
     PipelineResult result;
     result.stage = "generating";
@@ -439,6 +634,17 @@ PipelineResult Orchestrator::generate_stage(PipelineContext& ctx) {
     return result;
 }
 
+/**
+ * @brief Packages generated artifacts for the current pipeline run.
+ *
+ * Uses the pipeline context to collect outputs from the generating stage and
+ * produces packaged artifacts (including `generated_code` and a `timestamp`).
+ *
+ * @param ctx Pipeline context for the current run; used to read previous stage results.
+ * @return PipelineResult Result for the packaging stage. On success `stage` is `"packaging"`,
+ * `success` is `true`, `artifacts` contains `generated_code` and `timestamp`, and `content`
+ * contains a success message. On failure `success` is `false` and `error` contains the reason.
+ */
 PipelineResult Orchestrator::package_stage(PipelineContext& ctx) {
     PipelineResult result;
     result.stage = "packaging";
@@ -461,6 +667,12 @@ PipelineResult Orchestrator::package_stage(PipelineContext& ctx) {
     return result;
 }
 
+/**
+ * Execute the exporting stage for the given pipeline context and produce its result.
+ *
+ * @param ctx PipelineContext representing the pipeline being processed (identifies pipeline and carries stage data).
+ * @return PipelineResult Result for the exporting stage: `success` is `true` if export completed, `false` otherwise; `content` holds a human-readable status message; `error` contains an error message when `success` is `false`.
+ */
 PipelineResult Orchestrator::export_stage(PipelineContext& ctx) {
     PipelineResult result;
     result.stage = "exporting";

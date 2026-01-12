@@ -7,15 +7,33 @@ namespace server {
 
 namespace websocket = beast::websocket;
 
+/**
+ * @brief Initialize the HTTP server instance with the provided configuration.
+ *
+ * @param config Server configuration (host, http_port, thread_count, CORS and other options)
+ */
 HttpServer::HttpServer(const utils::ServerConfig& config)
     : config_(config) {
     LOG_INFO("HTTP server initialized on ", config_.host, ":", config_.http_port);
 }
 
+/**
+ * @brief Ensures the HTTP server is stopped and associated resources are released.
+ *
+ * Destructor for HttpServer that makes sure the server is no longer running and cleans up resources used for listening and connection handling.
+ */
 HttpServer::~HttpServer() {
     stop();
 }
 
+/**
+ * @brief Initialize network listening and launch worker threads based on configuration.
+ *
+ * Sets up the TCP acceptor bound to the configured host and HTTP port, marks the server
+ * as running, and spawns the configured number of worker threads that run the accept loop.
+ *
+ * @returns `true` if the server was successfully started and worker threads were launched, `false` otherwise (including when the server is already running or on startup errors).
+ */
 bool HttpServer::start() {
     if (running_) {
         LOG_WARNING("Server already running");
@@ -46,6 +64,12 @@ bool HttpServer::start() {
     }
 }
 
+/**
+ * @brief Stops the HTTP server and releases network and threading resources.
+ *
+ * If the server is not running, this is a no-op. Otherwise it closes the listening
+ * acceptor, stops the I/O context, joins all worker threads, and clears the thread pool.
+ */
 void HttpServer::stop() {
     if (!running_) return;
     
@@ -68,6 +92,16 @@ void HttpServer::stop() {
     LOG_INFO("HTTP server stopped");
 }
 
+/**
+ * @brief Continuously accepts incoming TCP connections and dispatches each to a handler thread.
+ *
+ * This loop runs while the server is marked running, accepts sockets from the configured acceptor,
+ * and spawns a detached thread to process each accepted connection via handle_connection().
+ * The loop exits if the accept operation is aborted (e.g., acceptor closed) or when running_ is cleared.
+ *
+ * Errors from individual accept operations or exceptions thrown inside the loop are logged and do not
+ * stop the overall accept loop except for operation-aborted conditions.
+ */
 void HttpServer::accept_loop() {
     while (running_) {
         try {
@@ -94,6 +128,16 @@ void HttpServer::accept_loop() {
     }
 }
 
+/**
+ * @brief Handle a single accepted TCP connection by dispatching it to HTTP or WebSocket processing.
+ *
+ * Reads an incoming HTTP request from the provided socket; if the request is a WebSocket upgrade,
+ * the connection is handed to the WebSocket handler, otherwise an HTTP response is produced,
+ * optional CORS headers are applied when enabled, and the response is written back to the socket.
+ *
+ * @param socket TCP socket for the accepted connection. Ownership of the socket is taken by value
+ *               and may be moved into internal handlers.
+ */
 void HttpServer::handle_connection(tcp::socket socket) {
     try {
         beast::flat_buffer buffer;
@@ -119,6 +163,17 @@ void HttpServer::handle_connection(tcp::socket socket) {
     }
 }
 
+/**
+ * @brief Process an incoming HTTP request using the configured router and populate the HTTP response.
+ *
+ * If a router is configured, converts the incoming request into the server's HttpRequest representation,
+ * invokes the router to obtain an HttpResponse, and maps the status, headers, and body back to the outgoing
+ * Beast HTTP response. If no router is configured or an exception occurs while handling the request,
+ * sets the response to HTTP 500 with a JSON error body.
+ *
+ * @param req The incoming HTTP request to handle.
+ * @param res The HTTP response to populate with status, headers, and body.
+ */
 void HttpServer::handle_http_request(
     http::request<http::string_body>& req,
     http::response<http::string_body>& res
@@ -161,6 +216,21 @@ void HttpServer::handle_http_request(
     }
 }
 
+/**
+ * @brief Handle an accepted HTTP upgrade request and run a WebSocket session.
+ *
+ * Accepts the provided upgrade request to establish a WebSocket over the given socket,
+ * then continuously reads incoming messages and dispatches them to the configured
+ * WebSocket handler callback. Provides the handler a send callback that transmits
+ * a string message back to the client.
+ *
+ * Errors encountered while sending or while processing the WebSocket session are
+ * caught and do not propagate out of this function; the session ends on socket
+ * closure or other WebSocket errors.
+ *
+ * @param socket Connected TCP socket for the WebSocket session (moved into the handler).
+ * @param req The HTTP upgrade request used to accept the WebSocket connection.
+ */
 void HttpServer::handle_websocket(tcp::socket socket, http::request<http::string_body> req) {
     try {
         websocket::stream<tcp::socket> ws(std::move(socket));
@@ -203,6 +273,17 @@ void HttpServer::handle_websocket(tcp::socket socket, http::request<http::string
     }
 }
 
+/**
+ * @brief Adds standard Cross-Origin Resource Sharing (CORS) headers to an HTTP response.
+ *
+ * Sets the following headers on the provided response:
+ * - `Access-Control-Allow-Origin: *`
+ * - `Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS`
+ * - `Access-Control-Allow-Headers: Content-Type, Authorization`
+ * - `Access-Control-Max-Age: 86400`
+ *
+ * @param res HTTP response to which the CORS headers will be added.
+ */
 void HttpServer::add_cors_headers(http::response<http::string_body>& res) {
     res.set(http::field::access_control_allow_origin, "*");
     res.set(http::field::access_control_allow_methods, "GET, POST, PUT, DELETE, OPTIONS");

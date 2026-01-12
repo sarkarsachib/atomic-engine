@@ -22,7 +22,7 @@ echo "  HTTP Port: $HTTP_PORT"
 echo "  IPC Socket: $IPC_SOCKET"
 echo ""
 
-# Function to test endpoint
+# test_endpoint tests an HTTP endpoint using the given method and optional JSON payload, prints colored PASS/FAIL and the response body, and returns 0 for HTTP 200 or 1 otherwise.
 test_endpoint() {
     local name=$1
     local method=$2
@@ -54,7 +54,7 @@ test_endpoint() {
     fi
 }
 
-# Wait for service
+# wait_for_service polls the given check command once per second for up to 30 seconds and exits with 0 if the check succeeds or 1 on timeout.
 wait_for_service() {
     local service=$1
     local check_cmd=$2

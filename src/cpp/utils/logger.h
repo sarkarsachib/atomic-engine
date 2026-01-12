@@ -8,7 +8,42 @@
 #include <ctime>
 #include <iomanip>
 
-namespace atomic {
+/**
+     * Access the global Logger singleton.
+     * @returns Reference to the singleton Logger instance.
+     */
+    /**
+     * Set the minimum level for emitted log messages.
+     * Messages whose level is lower than this value are ignored.
+     * @param level Minimum LogLevel; messages with lower priority will be ignored.
+     */
+    /**
+     * Get the current logging level.
+     * @returns The current LogLevel used to filter log messages.
+     */
+    /**
+     * Emit a log message at the specified level composed from the provided components.
+     * If `level` is lower than the Logger's current level, the message is not emitted.
+     * The provided `args` are concatenated in order using stream insertion semantics.
+     * @param level LogLevel at which to emit the message.
+     * @param args Zero or more streamable values that will be concatenated to form the message.
+     */
+    /**
+     * Emit a log message at DEBUG level composed from the provided components.
+     * The provided `args` are concatenated in order using stream insertion semantics.
+     * @param args Zero or more streamable values that will be concatenated to form the message.
+     */
+    /**
+     * Emit a log message at INFO level composed from the provided components.
+     * The provided `args` are concatenated in order using stream insertion semantics.
+     * @param args Zero or more streamable values that will be concatenated to form the message.
+     */
+    /**
+     * Emit a log message at WARNING level composed from the provided components.
+     * The provided `args` are concatenated in order using stream insertion semantics.
+     * @param args Zero or more streamable values that will be concatenated to form the message.
+     */
+    namespace atomic {
 namespace utils {
 
 enum class LogLevel {

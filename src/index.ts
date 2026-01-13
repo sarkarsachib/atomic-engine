@@ -1,7 +1,0 @@
-// Atomic Engine Entry Point
-import './runtime_globals';
-import brain from './core/brain';
-
-console.log('Atomic Engine Starting...');
-
-export default brain;

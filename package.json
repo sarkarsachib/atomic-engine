@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",
-    "dev": "ts-node src/index.ts"
+    "dev": "ts-node src/index.ts",
+    "test": "ts-node src/core/parser.test.ts",
+    "example": "ts-node src/core/parser-integration.ts"
   },
   "keywords": [
     "automation",
@@ -15,5 +17,11 @@
     "prototype"
   ],
   "author": "Atomic Engine",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
 }

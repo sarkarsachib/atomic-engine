@@ -1,7 +1,13 @@
 // Simple test for Atomic Forge module
 const { forge } = require('./src/modules/forge/index.js');
 
-// Test the Forge module with a simple specification
+/**
+ * Runs a smoke test of the Forge generator using a predefined project specification.
+ *
+ * Builds a sample spec, invokes forge.generate(spec), logs a summary and a preview of generated files and build instructions, and returns the generator output.
+ *
+ * @returns {Object} The generation result with properties like `summary`, `files` (array of generated files), and `buildInstructions`.
+ */
 async function testForge() {
   try {
     console.log('🧪 Testing Atomic Forge...');

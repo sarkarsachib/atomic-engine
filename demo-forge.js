@@ -168,7 +168,11 @@ const specs = [
   }
 ];
 
-// Run demos
+/**
+ * Executes the demo sequence: iterates the predefined specs, invokes ForgeDemo.generate for each, and logs simulated generation output and summaries.
+ *
+ * Logs per-demo headers, a brief pause to simulate processing, the generation summary (total files, generation time, languages, frameworks, architecture), and a final summary of demonstrated features.
+ */
 async function runDemos() {
   const forge = new ForgeDemo();
   

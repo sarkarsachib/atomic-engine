@@ -42,6 +42,7 @@ class RequestType:
     CREATE_BRAND = 5
     BUSINESS_PLAN = 6
     LAUNCH_CONFIG = 7
+    INTENT_CLASSIFICATION = 8
 
 
 class LLMAgentIPCServer:
@@ -118,12 +119,12 @@ class LLMAgentIPCServer:
         msg_type = message.get("type")
         msg_id = message.get("id")
         payload = message.get("payload", {})
-        
+
         try:
             # Health check
             if msg_type == MessageType.HEALTH_CHECK:
                 return self.create_health_response(msg_id)
-            
+
             # LLM request
             elif msg_type == MessageType.REQUEST:
                 request_id = payload["request_id"]
@@ -131,10 +132,18 @@ class LLMAgentIPCServer:
                 prompt = payload["prompt"]
                 stream = payload.get("stream", False)
                 metadata = payload.get("metadata", {})
-                
-                logger.info(f"Processing request {request_id} (stream={stream})")
-                
-                if stream:
+
+                logger.info(f"Processing request {request_id} (type={request_type}, stream={stream})")
+
+                if request_type == RequestType.INTENT_CLASSIFICATION:
+                    # Intent classification - faster, lower temperature
+                    return await self.handle_intent_classification(
+                        msg_id,
+                        request_id,
+                        prompt,
+                        metadata
+                    )
+                elif stream:
                     # Streaming response
                     await self.handle_streaming_request(
                         msg_id,
@@ -152,13 +161,13 @@ class LLMAgentIPCServer:
                         prompt,
                         metadata
                     )
-            
+
             else:
                 return self.create_error_response(
                     msg_id,
                     f"Unknown message type: {msg_type}"
                 )
-                
+
         except Exception as e:
             logger.error(f"Error processing message: {e}")
             return self.create_error_response(msg_id, str(e))
@@ -225,7 +234,93 @@ class LLMAgentIPCServer:
             }
             writer.write((json.dumps(error_response) + '\n').encode())
             await writer.drain()
-    
+
+    async def handle_intent_classification(
+        self,
+        msg_id: str,
+        request_id: str,
+        prompt: str,
+        metadata: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle intent classification request with optimized settings"""
+        try:
+            # Create LLM request with lower temperature for consistent classification
+            llm_request = LLMRequest(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": """You are an intent classifier for Atomic Engine. Classify intent of user ideas.
+
+Respond with ONLY one of these exact values (no additional text):
+- application_development
+- research
+- business
+- design
+- automation
+- content_creation
+- infrastructure
+- data_analysis
+- other
+
+Classify based on primary goal of idea."""
+                    },
+                    {
+                        "role": "user",
+                        "content": f"Classify intent: {prompt}"
+                    }
+                ],
+                stream=False,
+                temperature=0.1,  # Lower temperature for consistent classification
+                max_tokens=50,
+                metadata=metadata
+            )
+
+            # Get response
+            response = await self.client.generate(llm_request)
+
+            intent = response.content.strip().lower()
+
+            # Validate intent
+            valid_intents = [
+                'application_development', 'research', 'business', 'design',
+                'automation', 'content_creation', 'infrastructure', 'data_analysis', 'other'
+            ]
+
+            if intent not in valid_intents:
+                intent = 'other'
+                logger.warning(f"Unknown intent returned: {response.content}, defaulting to 'other'")
+
+            logger.info(f"✓ Intent classified: {intent} ({response.usage.total_tokens} tokens)")
+
+            return {
+                "id": msg_id,
+                "type": MessageType.RESPONSE,
+                "timestamp": int(time.time() * 1000),
+                "payload": {
+                    "request_id": request_id,
+                    "intent": intent,
+                    "model": response.model,
+                    "provider": response.provider,
+                    "input_tokens": response.usage.input_tokens,
+                    "output_tokens": response.usage.output_tokens,
+                    "is_final": True,
+                    "error": ""
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"Intent classification error: {e}")
+            return {
+                "id": msg_id,
+                "type": MessageType.ERROR,
+                "timestamp": int(time.time() * 1000),
+                "payload": {
+                    "request_id": request_id,
+                    "error": str(e),
+                    "intent": "other"  # Fallback intent
+                }
+            }
+
     async def handle_non_streaming_request(
         self,
         msg_id: str,

@@ -1,7 +1,0 @@
-// Atomic Engine Entry Point
-import brain from "./core/brain";
-export { IdeaParser } from "./core/parser";
-export { LLMClient } from "./core/llm-client";
-
-console.log("Atomic Engine Starting...");
-export default brain;

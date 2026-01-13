@@ -1,7 +1,0 @@
-// Atomic Brain - Core Orchestration Engine
-export class AtomicBrain {
-  async process(idea) {
-    return {};
-  }
-}
-export default new AtomicBrain();

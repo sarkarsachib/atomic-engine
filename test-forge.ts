@@ -1,6 +1,11 @@
 import { forge } from './src/modules/forge/index';
 
-// Test the Forge module with a simple specification
+/**
+ * Runs the Forge generator with a predefined specification to validate project generation.
+ *
+ * @returns The generation result object containing `summary`, `files`, and `buildInstructions`.
+ * @throws The error thrown by the Forge generator if generation fails.
+ */
 async function testForge() {
   try {
     console.log('🧪 Testing Atomic Forge...');

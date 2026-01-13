@@ -2,7 +2,18 @@ import knowledgeSystem from './knowledge_system';
 
 // Minimal Node http server wrapper (optional).
 // This file exists to satisfy the "async API endpoints for indexing" requirement
-// without coupling the knowledge system to a specific web framework.
+/**
+ * Create a minimal Node.js HTTP server that exposes a small set of knowledge-system endpoints without coupling to any web framework.
+ *
+ * Exposed routes:
+ * - GET /health -> { ok: true }
+ * - POST /knowledge/index -> accepts JSON body, enqueues an indexing job, responds with `{ accepted: true, jobId }`
+ * - GET /knowledge/templates -> `{ templates: [...] }`
+ * - GET /knowledge/metrics -> `{ dashboard: ... }`
+ * - any other route -> 404 `{ error: 'not_found' }`
+ *
+ * @returns The created HTTP server instance
+ */
 
 export function createKnowledgeHttpServer(): unknown {
   const http = require('http');
@@ -44,6 +55,12 @@ export function createKnowledgeHttpServer(): unknown {
   return server;
 }
 
+/**
+ * Parse and return the JSON payload from an HTTP request body, falling back to an empty object on error.
+ *
+ * @param req - The incoming HTTP request stream whose body will be read and parsed as JSON
+ * @returns The parsed object from the request body, or `{}` if the body is empty or cannot be parsed
+ */
 function readJson(req: any): Promise<any> {
   return new Promise(resolve => {
     let data = '';

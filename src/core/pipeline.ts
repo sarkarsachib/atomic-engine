@@ -7,7 +7,7 @@ export interface PipelineStage {
   module: string;
   status: 'pending' | 'running' | 'complete' | 'failed';
   progress: number;
-  output?: any;
+  output?: unknown;
   error?: Error;
   startTime?: Date;
   endTime?: Date;
@@ -24,7 +24,7 @@ export interface Pipeline {
 
 export class PipelineManager {
   private pipelines: Map<string, Pipeline> = new Map();
-  
+
   /**
    * Create new pipeline
    */
@@ -41,75 +41,76 @@ export class PipelineManager {
       status: 'initializing',
       totalProgress: 0
     };
-    
+
     this.pipelines.set(pipeline.id, pipeline);
     return pipeline;
   }
-  
+
   /**
-   * Execute pipeline
+   * Execute pipeline stages sequentially.
    */
-  async execute(pipelineId: string, executor: (stage: PipelineStage) => Promise<any>): Promise<void> {
+  async execute(pipelineId: string, executor: (stage: PipelineStage) => Promise<unknown>): Promise<void> {
     const pipeline = this.pipelines.get(pipelineId);
     if (!pipeline) throw new Error('Pipeline not found');
-    
+
     pipeline.status = 'running';
-    
+
     try {
-      await Promise.all(
-        pipeline.stages.map(async (stage) => {
-          stage.status = 'running';
-          stage.startTime = new Date();
-          
-          try {
-            stage.output = await executor(stage);
-            stage.status = 'complete';
-            stage.progress = 100;
-          } catch (error) {
-            stage.status = 'failed';
-            stage.error = error as Error;
-            throw error;
-          } finally {
-            stage.endTime = new Date();
-          }
-        })
-      );
-      
+      for (const stage of pipeline.stages) {
+        stage.status = 'running';
+        stage.startTime = new Date();
+
+        try {
+          stage.output = await executor(stage);
+          stage.status = 'complete';
+          stage.progress = 100;
+        } catch (error) {
+          stage.status = 'failed';
+          stage.error = error as Error;
+          throw error;
+        } finally {
+          stage.endTime = new Date();
+          pipeline.totalProgress =
+            pipeline.stages.reduce((sum, s) => sum + s.progress, 0) / pipeline.stages.length;
+        }
+      }
+
       pipeline.status = 'complete';
       pipeline.totalProgress = 100;
-    } catch (error) {
+    } catch (_error) {
       pipeline.status = 'failed';
     } finally {
       pipeline.endTime = new Date();
     }
   }
-  
+
   /**
    * Get pipeline status
    */
   getStatus(pipelineId: string): Pipeline | undefined {
     return this.pipelines.get(pipelineId);
   }
-  
+
   /**
    * Update stage progress
    */
   updateProgress(pipelineId: string, stageName: string, progress: number): void {
     const pipeline = this.pipelines.get(pipelineId);
     if (!pipeline) return;
-    
+
     const stage = pipeline.stages.find(s => s.name === stageName);
     if (stage) {
       stage.progress = progress;
-      pipeline.totalProgress = pipeline.stages.reduce((sum, s) => sum + s.progress, 0) / pipeline.stages.length;
+      pipeline.totalProgress =
+        pipeline.stages.reduce((sum, s) => sum + s.progress, 0) / pipeline.stages.length;
     }
   }
-  
+
   /**
    * Generate unique ID
    */
   private generateId(): string {
-    return `pipe_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `pipe_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   }
 }
 

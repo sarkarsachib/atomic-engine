@@ -1,7 +1,7 @@
 /**
  * Atomic BlackBox - Specification Generator
  */
-import { Atom, Module } from '../../core/brain';
+import { Atom, Module } from '../../core/types';
 
 export interface Specification {
   title: string;

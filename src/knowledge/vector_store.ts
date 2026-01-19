@@ -30,10 +30,23 @@ export interface VectorStore {
   healthCheck(): Promise<'ok' | 'unavailable'>;
 }
 
+/**
+ * Convert a numeric vector to a Float32Array.
+ *
+ * @param v - The input vector of numbers
+ * @returns A Float32Array containing the same numeric values as `v`
+ */
 function toFloat32(v: Vector): Float32Array {
   return new Float32Array(v);
 }
 
+/**
+ * Computes the dot product (inner product) of two numeric vectors.
+ *
+ * @param a - First vector
+ * @param b - Second vector
+ * @returns The sum of elementwise products of corresponding elements, using the length of the shorter vector
+ */
 function dot(a: Float32Array, b: Float32Array): number {
   let sum = 0;
   const len = Math.min(a.length, b.length);
